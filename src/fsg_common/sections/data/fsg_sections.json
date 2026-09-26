@@ -5995,6 +5995,15 @@
   {
    "build_default": "Stick",
    "category": "TYP",
+   "mass_kg_per_m": 1.78,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "LYS-C10010",
+   "source": "Lysaght Purlins -- Zeds and Cees Design and Installation Guide (BLY0111_B, 07/2026), \u00a72.2 \"Dimensions of Zeds & Cees\", row Z/C10010 (t=1.0mm, D=102mm): mass 1.78 kg/m. https://cdn.dcs.lysaght.com/download/lysaght-zeds-cees-purlins-and-girts-user-guide -- read 26 Sep 2026. Awaiting David's approval, tools#64."
+  },
+  {
+   "build_default": "Stick",
+   "category": "TYP",
    "mass_kg_per_m": 2.025,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
@@ -6075,10 +6084,28 @@
   {
    "build_default": "Stick",
    "category": "TYP",
+   "mass_kg_per_m": 6.5,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "LYS-C25019",
+   "source": "Lysaght Purlins -- Zeds and Cees Design and Installation Guide (BLY0111_B, 07/2026), \u00a72.2 \"Dimensions of Zeds & Cees\", row Z/C25019 (t=1.9mm, D=254mm): mass 6.50 kg/m. https://cdn.dcs.lysaght.com/download/lysaght-zeds-cees-purlins-and-girts-user-guide -- read 26 Sep 2026. Awaiting David's approval, tools#64."
+  },
+  {
+   "build_default": "Stick",
+   "category": "TYP",
    "mass_kg_per_m": 3.206,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "LYS-Z10019"
+  },
+  {
+   "build_default": "Stick",
+   "category": "TYP",
+   "mass_kg_per_m": 2.89,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "LYS-Z15012",
+   "source": "Lysaght Purlins -- Zeds and Cees Design and Installation Guide (BLY0111_B, 07/2026), \u00a72.2 \"Dimensions of Zeds & Cees\", row Z/C15012 (t=1.2mm, D=152mm): mass 2.89 kg/m. https://cdn.dcs.lysaght.com/download/lysaght-zeds-cees-purlins-and-girts-user-guide -- read 26 Sep 2026. Awaiting David's approval, tools#64."
   },
   {
    "build_default": "Stick",
@@ -6119,6 +6146,15 @@
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "LYS-Z20024"
+  },
+  {
+   "build_default": "Stick",
+   "category": "TYP",
+   "mass_kg_per_m": 6.49,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "STR-Z25019",
+   "source": "Stratco Maxi-Purlin Z & C Section Properties booklet (ZY-BRO-PURGIRTSA), \"Maxi-Purlin Z and C Section Dimensions\" table, row 250-19 / MXZ250-19 (t=1.9mm, D=250mm): mass 6.49 kg/m. https://www.stratco.com.au/siteassets/pdfs/steel_framing_purlins_maxi-purlin.pdf -- read 26 Sep 2026 (via archive.org snapshot, live URL blocked direct fetch). Stratco's own standard (non-Maxi) purlin range may carry slightly different dimensions per that booklet's own note; not yet cross-checked against the standard span-table book. Awaiting David's approval, tools#64."
   }
  ]
 }

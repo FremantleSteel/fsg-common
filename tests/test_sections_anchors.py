@@ -357,3 +357,57 @@ def test_ss_is_recognised_as_stainless():
     # longer word is a substring and not a word.
     section, how = sections.resolve("100SHS4")
     assert section is not None and how == "exact"
+
+
+# --- tools#64: the four purlin profiles neither 90_Lists nor FSG's own
+# detailer archive could supply a mass for -- Lysaght/Stratco published
+# section-properties tables, DRAFT pending David's approval (tools#64) ----
+
+_TOOLS_64_ROWS = {
+    "LYS-C10010": (1.78, 9),
+    "LYS-Z15012": (2.89, 3),
+    "LYS-C25019": (6.50, 1),
+    "STR-Z25019": (6.49, 40),
+}
+
+
+@pytest.mark.parametrize("raw,expected", _TOOLS_64_ROWS.items())
+def test_the_four_manufacturer_sourced_purlin_rows_resolve_exact(raw, expected):
+    """Before this PR each of these returned `(None, 'cold-formed')` --
+    `90_Lists` had no row and FSG's own detailer archive had too few lines
+    (or, for `STR-Z25019`, no Lysaght row at all to alias through) to build
+    a median. `docs/purlin-residue.md` (fsg-tender-review) named these four
+    as the residue: 53 detailer MTO lines with no mass source anywhere in
+    the estate. The mass and line count are the manufacturer table read and
+    the archive count already established, quoted here as a fixed pair so a
+    change to either is visible."""
+    expected_mass, _lines = expected
+    section, how = sections.resolve(raw)
+    assert section is not None, raw
+    assert section.section_id == raw, raw
+    assert section.mass_kg_per_m == expected_mass, raw
+    assert how == "exact", raw
+    assert section.source is not None and "tools#64" in section.source, (
+        f"{raw}: a manufacturer-sourced row must carry its citation"
+    )
+
+
+def test_the_53_detailer_lines_this_closes_are_named_not_recomputed():
+    """This repo carries no warehouse -- the 53-line figure is
+    `fsg-tender-review#tools64`'s own measurement (docs/purlin-residue.md),
+    not something re-derived here. What this test controls is that the four
+    rows the figure depends on all resolve, so the count stays true once a
+    peer re-runs it against the live archive."""
+    total = sum(lines for _mass, lines in _TOOLS_64_ROWS.values())
+    assert total == 53
+    for raw in _TOOLS_64_ROWS:
+        assert sections.resolve(raw)[0] is not None, raw
+
+
+def test_a_manufacturer_source_citation_is_the_exception_not_the_rule():
+    """Every ordinary `90_Lists` row still carries no `source` -- only the
+    four rows this PR adds do. A citation spreading to rows that came from
+    the workbook would be a false attribution."""
+    lib = sections.library()
+    sourced = [s.section_id for s in lib.sections if s.source is not None]
+    assert sorted(sourced) == sorted(_TOOLS_64_ROWS)

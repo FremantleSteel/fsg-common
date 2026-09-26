@@ -24,6 +24,12 @@ class Section:
     mass_kg_per_m: float | None
     plate_thickness_mm: float | None
     plate_kg_per_m2: float | None
+    source: str | None = None
+    """`None` for every ordinary `90_Lists` row. Set only where the mass came
+    from somewhere else entirely -- a manufacturer's own published table,
+    cited here as a plain string (table name, URL, date read), never a term
+    or a client figure. tools#64's four purlin profiles are the first use:
+    `90_Lists` and FSG's own detailer archive had no mass for them at all."""
 
     @property
     def is_plate(self) -> bool:
