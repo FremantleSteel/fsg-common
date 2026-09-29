@@ -230,9 +230,13 @@ DEFAULT_CONTENT_SCAN_SKIP: tuple[re.Pattern, ...] = (
 # See the module docstring for the boundary-defect and phone-census history
 # behind these three. Ported from fsg-estimating-crm, the only source.
 
+# The local part starts on a letter or digit, and the lookbehind blocks only a
+# word character or backslash: a leading `-` `.` `_` `%` `+` is punctuation
+# around the address (`${X:-a@b.com}` is the address `a@b.com`, not
+# `-a@b.com`), and capturing it made the exact-address allowlist miss.
 EMAIL_RE = re.compile(
-    r"(?:(?<=\\[nrt])|(?<![A-Za-z0-9._%+\-\\]))"
-    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
+    r"(?:(?<=\\[nrt])|(?<![A-Za-z0-9\\]))"
+    r"[A-Za-z0-9][A-Za-z0-9._%+\-]*@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 
 AU_MOBILE_RE = re.compile(r"(?<![0-9])(?:\+61[ \-]?|0[ \-]?)4(?:[ \-]?\d){8}\b")
 

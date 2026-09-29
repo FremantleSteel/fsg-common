@@ -237,6 +237,21 @@ def test_email_behind_a_literal_escape_is_still_caught_without_swallowing_it():
     assert "john.smith@gmail.com" in matches[0]
 
 
+def test_allowlisted_address_behind_compose_default_is_not_caught():
+    """`${X:-staff@fsg.example}`: the `-` is the compose default operator,
+    not part of the address, so the exact-address allowlist must still match."""
+    hits = _scan_text("A: ${X:-staff@fsg.example}\n", config=PII_CONFIG)
+    assert not any("customer email" in h for h in hits), hits
+
+
+def test_non_allowlisted_address_behind_compose_default_is_still_caught():
+    hits = _scan_text("A: ${X:-john.smith@gmail.com}\n", config=PII_CONFIG)
+    matches = [h for h in hits if "customer email" in h]
+    assert matches, hits
+    assert "-john.smith" not in matches[0]
+    assert "john.smith@gmail.com" in matches[0]
+
+
 # --- PII: phone ---------------------------------------------------------------
 
 def test_an_au_mobile_is_caught():
