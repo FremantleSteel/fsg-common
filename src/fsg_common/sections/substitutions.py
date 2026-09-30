@@ -95,3 +95,26 @@ def lookup_any(raw: str) -> Substitution | None:
         if hit is not None:
             return hit
     return None
+
+
+@dataclass(frozen=True)
+class VendorEquivalence:
+    vendors: tuple[str, ...]
+    applies_to: str
+    decided_by: str
+    date: str
+    source: str
+
+
+@functools.lru_cache(maxsize=1)
+def vendor_equivalences() -> tuple[VendorEquivalence, ...]:
+    """The estimators' recorded vendor equivalences (STR/LYS, 30 Sep 2026).
+
+    A recorded decision, not a resolver input by itself: `_resolver` carries
+    `COLD_FORMED_VENDORS` and a test pins the two together, so the decision
+    and the code cannot drift apart unseen."""
+    return tuple(
+        VendorEquivalence(vendors=tuple(e["vendors"]), applies_to=e["applies_to"],
+                          decided_by=e["decided_by"], date=e["date"],
+                          source=e["source"])
+        for e in _load().get("vendor_equivalences", []))
