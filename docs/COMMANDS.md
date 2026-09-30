@@ -75,7 +75,7 @@ David's rule, all five repos, 16 Sep 2026: no commit carries a co-authorship tra
 
 | Run | What it does | Defined in |
 | --- | --- | --- |
-| `python scripts/check_pr_body.py` | No pull request body or first comment carries an AI attribution line. | `scripts/check_pr_body.py` |
+| `python scripts/check_pr_body.py` | This repo's own copy of the shared pull-request-body gate. | `scripts/check_pr_body.py` |
 
 ## Check the estate-wide compulsory reading path stays under its word cap
 
