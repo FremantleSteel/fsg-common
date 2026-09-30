@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import check_pr_body as cpb  # noqa: E402
 
-SHORT = "One sentence of what changed.\n\nTests: 7 before, 9 after."
+SHORT = "Closes #1\n\nOne sentence of what changed.\n\nTests: 7 before, 9 after."
 
 
 class TheAttributionRule(unittest.TestCase):
@@ -128,6 +128,16 @@ class TheCommandLine(unittest.TestCase):
         comment = self._tmp("comment.md", "Co-Authored-By: x")
         self.assertEqual(cpb.main(["--body-file", body]), 0)
         self.assertEqual(cpb.main(["--body-file", body, "--comment-file", comment]), 1)
+
+
+class TheWrapperIsThin(unittest.TestCase):
+    """crm#1719: the script is a wrapper over the one shared implementation,
+    so a fix made in `fsg_common.pr_body` reaches this repo's gate."""
+
+    def test_the_script_delegates_to_the_shared_module(self):
+        from fsg_common import pr_body
+        self.assertIs(cpb.main, pr_body.main)
+        self.assertIs(cpb.check, pr_body.check)
 
 
 class TheWorkflowRunsIt(unittest.TestCase):
