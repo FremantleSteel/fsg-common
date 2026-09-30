@@ -8,5 +8,24 @@
       "date": "2026-08-28",
       "source": "fsg-estimating-tools/docs/questions-for-estimators.md Q4, d37ac80"
     }
+  ],
+  "vendor_equivalences": [
+    {
+      "vendors": ["STR", "LYS"],
+      "applies_to": "cold-formed C/Z purlins at the same shape, depth and BMT",
+      "for": "pricing",
+      "decided_by": "estimating team, relayed by David Kagi",
+      "date": "2026-09-30",
+      "source": "fsg-tender-review#184, handout Q27: Stratco and Lysaght are interchangeable for pricing. The resolver has carried this as cold-formed-vendor-equivalent since 7 Sep 2026 (fsg-common#16); this entry is the recorded decision behind it, and a test pins COLD_FORMED_VENDORS to it."
+    }
+  ],
+  "conventions": [
+    {
+      "topic": "BT and CT Section_ID number",
+      "rule": "The number at the end of a BT or CT Section_ID is FSG's nominal mass, rounded to the nearest whole kg/m, and the row's stored mass is that number (100BT12 = 12 kg/m). 45 rows follow it. It is a convention, not 45 wrong masses; do not re-derive them from section dimensions.",
+      "decided_by": "estimating team, relayed by David Kagi",
+      "date": "2026-09-30",
+      "source": "fsg-tender-review#184, handout Q31: A FSG convention - rounded to the nearest number i.e. 11 = 11kg"
+    }
   ]
 }

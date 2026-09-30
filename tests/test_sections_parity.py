@@ -33,7 +33,8 @@ from vocabulary import VOCABULARY, build, library_sweep
 from fsg_common import sections
 
 VERDICTS = {"exact", "canonical", "nearest", "cold-formed",
-            "cold-formed-vendor-equivalent", "material-mismatch",
+            "cold-formed-vendor-equivalent", "cold-formed-bare-lysaght",
+            "material-mismatch",
             "shape-modifier", "substitution", "unresolved"}
 
 

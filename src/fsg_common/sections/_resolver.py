@@ -67,7 +67,9 @@ settles; fsg-tender-review#184's other questions stay open.)
 `(Section, how)` out, never a bare mass -- `exact` (the drawing already
 wrote the library's own ID), `canonical` (rewritten into library form, or a
 rounding of the library's own AS/NZS mass), `nearest` (closest same-depth
-section; needs an estimator's eye), `cold-formed` (a real C/Z purlin code
+section; needs an estimator's eye), `cold-formed-bare-lysaght` (a bare purlin
+code read as its `LYS-` row -- estimators, 30 Sep 2026; exact or refused),
+`cold-formed` (a real C/Z purlin code
 `90_Lists` does not carry -- a library gap, not a misread), `unresolved`,
 `material-mismatch` (aluminium/stainless/timber -- refuses rather than
 pricing it as steel), `shape-modifier` (THREADED/HEX: a cross-section
@@ -209,13 +211,16 @@ _TWO_NUMBER_TYPES = {"UB", "UC", "WB", "WC", "TFC", "TFB", "BT", "CT", "FL"}
 # (`LYS-Z20024`, resolved `exact`); a BARE code (no vendor prefix) does not
 # resolve, even though a same-shaped Lysaght row exists under a prefixed id.
 #
-# tr#280 (6 Sep 2026) tried aliasing a bare code to its Lysaght row, labelled
-# as an assumed manufacturer. REVERTED 7 Sep 2026 (fsg-tender-review#184,
-# question 2 / "questions-for-estimators.md" Q26): David, relaying the
-# estimating team's answer -- a bare code must NOT be assumed Lysaght; leave
-# it unresolved. The alias block this comment used to point to is gone; a
-# bare code now falls straight through to the `cold-formed` refusal below,
-# same as a vendor-prefixed code the library doesn't carry.
+# tr#280 (6 Sep 2026) tried aliasing a bare code to its Lysaght row; it was
+# REVERTED 7 Sep 2026 on the estimating team's first answer to Q26. The
+# estimators then answered again, 30 Sep 2026 (David relaying, fsg-tender-
+# review#184, handout Q26): "Does a bare cold formed code mean lysaght - Yes."
+# The alias is back, as `cold-formed-bare-lysaght`: an EXACT bare-to-`LYS-`
+# lookup on the raw text, refusing (`cold-formed`) on a miss. It never goes
+# through `canonical_candidates()`/`nearest()` -- adding bare rows to
+# 90_Lists instead makes `Z20015` snap to the nearest wall, `Z20024`, 62%
+# heavy (the trap Q2 records). It maps to `LYS-` and never to `STR-`: a bare
+# `Z25019` has only a `STR-` row, and stays a refusal.
 #
 # A VENDOR-prefixed code is different: 90_Lists carries no `STR-` rows at
 # all today (Lysaght is the only maker actually priced), but a `STR-`
@@ -954,12 +959,14 @@ class SectionLibrary:
           depth/BMT, not merely close on mass. The manufacturer IS what the
           drawing wrote; only the specific row moved. Exact alias only,
           refusing to ``cold-formed`` on a miss
+        - ``cold-formed-bare-lysaght``  a BARE C/Z purlin code (`Z20015`)
+          read as the `LYS-` row of the same shape/depth/BMT -- the
+          estimators' answer to fsg-tender-review#184 Q26, 30 Sep 2026
+          (bare means Lysaght). Exact alias on the raw text only, refusing
+          to ``cold-formed`` on a miss; never nearest, never `STR-`
         - ``cold-formed``    a readable C/Z purlin code, bare or vendor-
           prefixed, that 90_Lists does not carry under the id as written --
-          a library gap, not a bad read. A bare code is never assumed to
-          mean any one vendor (tr#280 tried that 6 Sep 2026 and it was
-          reverted 7 Sep 2026, fsg-tender-review#184 Q26: the estimating
-          team's answer was not to guess)
+          a library gap, not a bad read
         - ``material-mismatch``  aluminium/stainless/timber/etc. -- refuses
           rather than pricing it as steel
         - ``shape-modifier`` the notation names a cross-section 90_Lists has
@@ -1042,13 +1049,23 @@ class SectionLibrary:
                 hit = self.get(alt_id)
                 if hit is not None:
                     return hit, "cold-formed-vendor-equivalent"
+        # fsg-tender-review#184 Q26, ANSWERED 30 Sep 2026 ("Does a bare cold
+        # formed code mean lysaght - Yes"): a BARE code (`Z20015`) is the
+        # `LYS-` row of the same shape/depth/BMT. EXACT lookup, RAW text only:
+        # a schedule-marked candidate (`P7 Z20015`) is deliberately not
+        # aliased -- unmeasured, and the earlier alias narrowed to raw-only
+        # for the same reason. A miss falls through to the `cold-formed`
+        # refusal below; it never snaps to a neighbouring wall.
+        bare = cold_formed(raw)
+        if bare is not None:
+            shape, depth, bmt = bare
+            hit = self.get(f"LYS-{shape}{depth:03d}{round(bmt * 10):02d}")
+            if hit is not None:
+                return hit, "cold-formed-bare-lysaght"
         # Check the candidates too, not just the raw text: a schedule line
         # reads 'P7 Z20015', and only the demarked form is recognisable as a
-        # purlin. A BARE code is never assumed to mean any one vendor --
-        # tr#280 (6 Sep 2026) tried aliasing a bare code to its Lysaght row;
-        # REVERTED 7 Sep 2026 (fsg-tender-review#184 Q26): the estimating
-        # team's answer was to leave it unresolved rather than guess a
-        # manufacturer the drawing never stated.
+        # purlin. That form is a real code the library may not carry; it is
+        # not aliased to a vendor (see the raw-only note above).
         if cold_formed(raw) is not None or any(
             cold_formed(candidate) is not None for candidate in candidates
         ):

@@ -109,18 +109,18 @@ ANCHORS = [
     # 9 most common bare-vs-prefixed pairs (library-gap-ranked.md, 499
     # lines), and each still exercises the same `cold_formed()` grammar
     # branch, now returning `cold-formed` rather than an alias.
-    ("Z20024", "bare, refuses (cold-formed), 199 archive lines"),
-    ("C15019", "bare, refuses (cold-formed), 104 archive lines"),
-    ("Z20015", "bare, refuses (cold-formed) -- NOT aliased to Z20024's "
-              "7.065 kg/m; this is the exact pair a bare library row would "
-              "have let `nearest` confuse, 62% over, which is why the "
-              "revert stays a refusal rather than a library row"),
-    ("Z15019", "bare, refuses (cold-formed), 48 archive lines"),
-    ("C10015", "bare, refuses (cold-formed), 30 archive lines"),
-    ("C20024", "bare, refuses (cold-formed), 28 archive lines"),
-    ("C15015", "bare, refuses (cold-formed), 5 archive lines"),
-    ("C15012", "bare, refuses (cold-formed), 5 archive lines"),
-    ("C15024", "bare, refuses (cold-formed), 1 archive line"),
+    ("Z20024", "bare, reads as its LYS- row (30 Sep 2026), 199 archive lines"),
+    ("C15019", "bare, reads as its LYS- row (30 Sep 2026), 104 archive lines"),
+    ("Z20015", "bare, reads as LYS-Z20015 (cold-formed-bare-lysaght) -- NOT "
+              "Z20024's 7.065 kg/m; the exact pair a bare library row would "
+              "have let `nearest` confuse, 62% over, which is why this is an "
+              "exact alias and never a library row"),
+    ("Z15019", "bare, reads as its LYS- row (30 Sep 2026), 48 archive lines"),
+    ("C10015", "bare, reads as its LYS- row (30 Sep 2026), 30 archive lines"),
+    ("C20024", "bare, reads as its LYS- row (30 Sep 2026), 28 archive lines"),
+    ("C15015", "bare, reads as its LYS- row (30 Sep 2026), 5 archive lines"),
+    ("C15012", "bare, reads as its LYS- row (30 Sep 2026), 5 archive lines"),
+    ("C15024", "bare, reads as its LYS- row (30 Sep 2026), 1 archive line"),
     ("Z99999", "a syntactically valid but non-existent depth/BMT -- stays "
               "an honest refusal, never guessed via nearest"),
     # fsg-tender-review#184 Q25: `CHS 6.4` is a wall written one decimal
