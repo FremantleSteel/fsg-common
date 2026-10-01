@@ -599,3 +599,111 @@ def test_extra_secret_patterns_add_to_not_replace_the_defaults():
     names = [why for _rx, why in config.secret_patterns]
     assert "a repo-specific marker" in names
     assert "a hardcoded password" in names
+
+
+# --- EspoCRM detectors, near-misses, exemptions, --all (crm#1719 slice 4) ----
+# Each has a positive control (the shape it exists for) and a negative control
+# (the same code with the flag off, or an ordinary neighbour of the shape).
+
+import io  # noqa: E402
+from contextlib import redirect_stderr, redirect_stdout  # noqa: E402
+
+ESPO = leak_guard.GuardConfig(
+    repo_holds="x", client_data_lives="y", enable_pii=True,
+    enable_espocrm_detectors=True, enable_near_misses=True,
+    pii_exempt_paths=frozenset({"tests/test_parser.py"}),
+)
+RID = "0123456789abcdef0"  # 17 hex characters
+
+
+def _check(tmp_path, name, body, config=ESPO, near=None):
+    f = tmp_path / name
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(body, encoding="utf-8")
+    return leak_guard.check([str(f)], config, near_misses=near)
+
+
+def test_record_id_beside_a_phone_is_blocked_and_bare_id_is_not(tmp_path):
+    near = _check(tmp_path, "a.md", f"call 0400 111 222\nid {RID}\n")
+    assert any("record id" in p for p in near)
+    assert _check(tmp_path, "b.md", f"just an id {RID}\n") == []
+
+
+def test_espocrm_detectors_are_off_unless_configured(tmp_path):
+    off = leak_guard.GuardConfig(repo_holds="x", client_data_lives="y", enable_pii=True)
+    body = f"x\n$m = @{{ id = '{RID}'; name = 'Some Person' }}\n"
+    assert _check(tmp_path, "c.ps1", body, config=ESPO)
+    assert _check(tmp_path, "c.ps1", body, config=off) == []
+
+
+def test_id_name_literal_is_blocked_unless_it_names_another_entity_type(tmp_path):
+    hit = f"$m = @{{ id = '{RID}'; name = 'Some Person' }}\n"
+    ok = f"$m = @{{ id = '{RID}'; name = 'Doc'; type = 'CDocument' }}\n"
+    assert any("name\" literal" in p for p in _check(tmp_path, "d.ps1", hit))
+    assert _check(tmp_path, "e.ps1", ok) == []
+    # `contentType` must not count as `type` (the exemption's own boundary)
+    sneaky = f"$m = @{{ id = '{RID}'; name = 'Some Person'; contentType = 'x' }}\n"
+    assert _check(tmp_path, "f.ps1", sneaky)
+
+
+def test_json_merge_plan_shape_blocks_and_ordinary_record_does_not(tmp_path):
+    plan = '[{"name": "Some Person", "survivor": "a", "dupes": ["b"]}]'
+    rec = f'{{"name": "Some Person", "accountId": "{RID}", "id": "{RID}"}}'
+    assert any("survivor/dupes" in p for p in _check(tmp_path, "p.json", plan))
+    assert _check(tmp_path, "r.json", rec) == []
+
+
+def test_populated_pindata_blocks_and_empty_does_not(tmp_path):
+    full = '{"pinData": {"Node A": [{"json": {"name": "x", "n": 1}}]}}'
+    probs = _check(tmp_path, "w.json", full)
+    assert any("pinData" in p and "Node A" in p for p in probs)
+    assert not any("x" == p for p in probs)
+    assert _check(tmp_path, "w2.json", '{"pinData": {}}') == []
+
+
+def test_near_misses_are_reported_not_blocking(tmp_path):
+    near: list[str] = []
+    probs = _check(tmp_path, "n.md", "ring +61 4111 2222\nand +44 7911 123456\n", near=near)
+    assert probs == []
+    assert any("mistyped AU" in n for n in near)
+    assert any("international" in n for n in near)
+    # a valid E.164 AU number is a blocking hit, not a near-miss
+    near2: list[str] = []
+    assert _check(tmp_path, "n2.md", "ring +61411122233\n", near=near2)
+    assert near2 == []
+
+
+def test_pii_exempt_path_skips_pii_but_never_secrets(tmp_path):
+    body = 'x = "0400 111 222"\npassword = "hunter2hunter2"\n'
+    probs = _check(tmp_path, "tests/test_parser.py", body)
+    # path is absolute here, so exemption (an exact repo-relative path) applies
+    # only when the caller passes it that way; assert both ways.
+    assert any("password" in p for p in probs)
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        probs = leak_guard.check(["tests/test_parser.py"], ESPO)
+    finally:
+        os.chdir(cwd)
+    assert any("hardcoded password" in p for p in probs)
+    assert not any("phone" in p for p in probs)
+
+
+def test_run_all_refuses_when_the_tracked_list_is_empty():
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        rc = leak_guard.run(["--all"], ESPO, tracked=lambda: [])
+    assert rc == 2 and "--all" in err.getvalue()
+
+
+def test_run_all_scans_what_tracked_returns(tmp_path):
+    f = tmp_path / "ok.md"
+    f.write_text("plain\n", encoding="utf-8")
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        rc = leak_guard.run(["--all"], ESPO, tracked=lambda: [str(f)])
+    assert rc == 0 and "1 file(s) checked" in out.getvalue()
+    bad = tmp_path / "bad.md"
+    bad.write_text("a@person.test.com\n", encoding="utf-8")
+    with redirect_stdout(out), redirect_stderr(err):
+        assert leak_guard.run(["--all"], ESPO, tracked=lambda: [str(bad)]) == 1

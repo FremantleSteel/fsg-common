@@ -73,7 +73,9 @@ machinery are ported near-verbatim, because this is the one part of the
 sibling copies that already went through exactly the falsification rigor
 this whole file exists to preserve.
 
-**Deliberately NOT ported**: `RECORD_ID_RE`, `LITERAL_ID_NAME_RE`,
+**Deliberately NOT ported (since crm#1719 slice 4, 1 Oct 2026: ported, but
+OFF unless `GuardConfig.enable_espocrm_detectors` is set -- the reasoning below
+is why it is off by default)**: `RECORD_ID_RE`, `LITERAL_ID_NAME_RE`,
 `NON_CONTACT_TYPE_RE`, the proximity co-occurrence check, and the JSON
 `name`+id-literal / n8n `pinData` detectors. These protect against a
 re-identification risk specific to EspoCRM record ids sitting next to a
@@ -102,6 +104,7 @@ caller's, so a fix here reaches every repo the next time each bumps its
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -284,6 +287,16 @@ class GuardConfig:
     allowed_email_domains: frozenset[str] = frozenset()
     allowed_email_tlds: frozenset[str] = DEFAULT_ALLOWED_EMAIL_TLDS
     role_account_local_parts: frozenset[str] = frozenset()
+    #: crm#1719 slice 4. Off by default: record-id/name proximity, the JSON
+    #: merge-plan shape and populated n8n `pinData` (see the block above).
+    enable_espocrm_detectors: bool = False
+    #: Non-blocking channel for mistyped `+61` and non-AU international
+    #: numbers; reported through `check(near_misses=[...])`, never in `problems`.
+    enable_near_misses: bool = False
+    #: Repo-relative paths whose PII/record-id/near-miss detection is skipped
+    #: because the file's job is to exercise a parser. Secret patterns and the
+    #: extension/filename rules still apply to them. Exact paths, never a tree.
+    pii_exempt_paths: frozenset[str] = frozenset()
 
     @property
     def blocked_extensions(self) -> dict[str, str]:
@@ -300,6 +313,247 @@ class GuardConfig:
     @property
     def scan_extensions(self) -> frozenset[str]:
         return DEFAULT_SCAN_EXTENSIONS | self.extra_scan_extensions
+
+
+
+# --- EspoCRM-specific detectors, OFF unless a config opts in -----------------
+#
+# crm#1719 slice 4 (1 Oct 2026): moved here from `fsg-estimating-crm`'s own
+# `scripts/check_no_client_data.py`, behind `GuardConfig.enable_espocrm_
+# detectors` / `enable_near_misses`, so crm's script can become a thin wrapper
+# like the other three. The reasoning in the "Deliberately NOT ported" note
+# above still holds, and is why they are OFF by default: a config that does not
+# ask for them gets exactly the behaviour it had before. They are `_`-private
+# to the module like the other detectors; `check()` is the surface.
+#
+# The first block below is verbatim from crm, comments included -- the
+# incidents they cite are that repo's.
+
+# EspoCRM record ids observed live are 17 lowercase-hex characters. A bare id
+# is just a database key, not PII by itself -- what makes it re-identifying is
+# sitting next to a real person's contact details (fix_tender_import_contact_
+# conflicts.ps1 paired names+phones with the record id that resolves them;
+# contact_merge_plan.json mapped names to record ids directly). So this is
+# only ever checked for CO-OCCURRENCE with an email/phone match, never
+# flagged bare -- a bare reference in CHANGELOG.md/espocrm/workflows/etc. is
+# normal, expected, and not what this control is for.
+# `(?<![0-9A-Za-z_])` is the boundary; plus the `(?<=\\[nrt])` branch so an id
+# following a literal escape sequence is seen. n/r/t are not hex, so no
+# ambiguity about where the match starts.
+RECORD_ID_RE = re.compile(r"(?:(?<=\\[nrt])|(?<![0-9A-Za-z_]))[0-9a-f]{17}\b")
+PROXIMITY_WINDOW_LINES = 5
+
+# The PowerShell/Python hashtable-literal equivalent of the JSON
+# name+survivor/dupes shape above: this project's own convention for a
+# one-off "move these records" script is a `@{ id = '<hex>'; name = 'Real
+# Person'; ... }` literal, one per line (confirmed real incident:
+# fix_blob_accounts.ps1's $contactMoves array). No email/phone needed nearby
+# for this one to be identifying -- the id IS the resolving key. Scoped to a
+# single physical line deliberately, matching how this project actually
+# writes these literals.
+LITERAL_ID_NAME_RE = re.compile(
+    r"(?:id\s*=\s*['\"][0-9a-f]{17}['\"].{0,200}?name\s*=\s*['\"][^'\"]+['\"]"
+    r"|name\s*=\s*['\"][^'\"]+['\"].{0,200}?id\s*=\s*['\"][0-9a-f]{17}['\"])",
+    re.IGNORECASE,
+)
+# A "name" next to a record id is only a person's name when the literal is
+# actually describing a Contact -- the identical shape is used throughout
+# this project's own one-off cleanup scripts to describe a CDocument/Task/
+# Opportunity/CProspect/CEOI's own display name (confirmed real, harmless
+# case: cleanup_test_records.ps1's $targets array), which is not personal
+# data. A literal naming any OTHER entity type on the same line is exempted;
+# one naming Contact, or naming no type at all (fix_blob_accounts.ps1's real
+# incident -- no `type` key present), still triggers.
+# This one is an EXEMPTION, so a missing left boundary fails in the dangerous
+# direction: unanchored, it also matched `contentType`, `mimeType`,
+# `entityType` and even `prototype`, any of which would have silently
+# exempted a line pairing a live record id with a real person's name. Same
+# escape-tolerant boundary as everywhere else, so `type` must be its own
+# word.
+NON_CONTACT_TYPE_RE = re.compile(
+    r"(?:(?<=\\[nrt])|(?<![A-Za-z0-9_]))type\s*=\s*['\"](?!contact['\"])[^'\"]+['\"]",
+    re.IGNORECASE)
+
+# Almost every EspoCRM/n8n JSON record has a "name" alongside relational
+# foreign-key ids (accountId, createdById, modifiedById, the record's own
+# "id") -- that is completely normal and not a PII pairing. What actually
+# leaked (contact_merge_plan.json) is a narrower, more specific shape: a
+# person's "name" sitting directly alongside "survivor"/"dupes" -- a
+# reconciliation plan mapping one name to several different record ids for
+# the same underlying person. Keying on that vocabulary, rather than "name
+# next to any id", is what keeps this from false-positiving on every
+# ordinary CRM record dump.
+MERGE_PLAN_SIBLING_KEYS = {"survivor", "dupes"}
+
+
+def _json_name_id_pairs(norm_path: str, body: str) -> list[str]:
+    """Walks parsed JSON looking for the contact-merge-plan shape: a dict with
+    a non-empty "name" string sitting alongside a "survivor" and/or "dupes"
+    key. Returns human-readable problem strings (never the name/id values
+    themselves -- the shape alone is enough to act on), or [] if the file
+    isn't JSON or has no such shape.
+    """
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    problems: list[str] = []
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            keys_lower = {k.lower() for k in node}
+            if "name" in keys_lower and (keys_lower & MERGE_PLAN_SIBLING_KEYS):
+                name_val = node.get("name")
+                if isinstance(name_val, str) and name_val.strip():
+                    problems.append(
+                        f"{norm_path}: a \"name\" field sits alongside "
+                        "survivor/dupes record-id fields -- this is the "
+                        "contact-merge-plan shape that leaked 65 real names "
+                        "mapped to 156 live record ids before"
+                    )
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    return problems
+
+
+# n8n pins a node's last output into the workflow JSON so a developer can
+# iterate without re-running upstream nodes. That output is whatever the
+# node actually returned -- for a node that PATCHes EspoCRM, a live
+# Opportunity with the customer's name, contact details and commercials.
+# It survives an export and lands in git looking like ordinary workflow
+# config.
+#
+# The rule is deliberately blunt: any populated pinData blocks, regardless
+# of what is in it. Every FSG-* workflow in this repo ships "pinData": {},
+# so demanding that costs nothing and needs no per-file allowlist. Re-pin
+# freely while developing; just clear the pins before committing (n8n:
+# "Unpin" on the node, or set the key back to {}).
+def _json_populated_pindata(norm_path: str, body: str) -> list[str]:
+    """Blocks any non-empty n8n `pinData` map. Reports the node name and a
+    field count only -- never the pinned values, which are the very thing
+    being kept out of the report."""
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    problems: list[str] = []
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            pin = node.get("pinData")
+            if isinstance(pin, dict) and pin:
+                for node_name, rows in pin.items():
+                    fields = 0
+                    if isinstance(rows, list):
+                        for row in rows:
+                            item = row.get("json", row) if isinstance(row, dict) else row
+                            if isinstance(item, dict):
+                                fields += sum(
+                                    1 for v in item.values()
+                                    if v not in (None, "", 0, [], {})
+                                )
+                    problems.append(
+                        f"{norm_path}: n8n pinData is populated on node "
+                        f"\"{node_name}\" ({fields} field(s) with values) -- "
+                        "a pinned node output is real API data, not a "
+                        "fixture; clear the pin before committing"
+                    )
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    return problems
+
+
+def _find_record_id_hits(body: str) -> list[tuple[int, str]]:
+    return [(body.count("\n", 0, m.start()) + 1, m.group(0))
+            for m in RECORD_ID_RE.finditer(body)]
+
+
+def _proximity_pairing_hits(
+    email_hits: list[tuple[int, str]],
+    phone_hits: list[tuple[int, str]],
+    id_hits: list[tuple[int, str]],
+) -> list[str]:
+    """For non-JSON text: flags a record-id only when an email or phone match
+    (already past the allowlists above) lands within PROXIMITY_WINDOW_LINES of
+    it -- the shape fix_tender_import_contact_conflicts.ps1 had (name/phone on
+    one line, the resolving record id a couple of lines later)."""
+    contact_lines = [ln for ln, _ in email_hits] + [ln for ln, _ in phone_hits]
+    if not contact_lines:
+        return []
+    problems = []
+    for id_line, id_val in id_hits:
+        if any(abs(id_line - cl) <= PROXIMITY_WINDOW_LINES for cl in contact_lines):
+            problems.append(
+                f"{id_line}: record id {id_val!r} appears within "
+                f"{PROXIMITY_WINDOW_LINES} lines of a customer email/phone match"
+            )
+    return problems
+
+
+# --- Near-miss / advisory-only channel --------------------------------------
+# REPORTS, NEVER BLOCKS. A blocking rule is the one that acquires exemptions
+# when it fires on something legitimate, and exemptions are what opened three
+# holes in this guard's history already (see git blame on this file's
+# predecessor). A near-miss is a separate signal: it surfaces the value
+# without changing what the strict patterns do or what they refuse.
+
+# `+61` followed by a subscriber-digit count that is NOT the valid 9. A real
+# AU number in E.164 is +61 plus 9 digits; this catches 8 or 10-11, a typo in
+# a real number rather than a foreign one.
+# `[ -]` not `[\s-]`: a bare \s matches a newline, so the capture ran past
+# the end of the line and carried it into the reported value.
+AU_NEAR_MISS_RE = re.compile(r"\+61[ -]?(\d[ -]?){8,11}(?!\d)")
+
+# A non-AU international number: `+` then a country code that is NOT 61, then
+# enough digits to be a subscriber number. Measured 1 Sep 2026 over all 350
+# tracked text files with a deliberately loose `+CC` shape: 26 candidates, 25
+# of them `+61` the strict patterns already cover, 1 a line of documentation
+# prose -- zero version strings, zero offsets, zero ids, because requiring a
+# literal `+` AND at least 7 following digits excludes `+1.2.3`, `+0800` and
+# every offset-shaped token by construction. `(?!61)`: `+615...` is a valid
+# non-AU-shaped string only if the digits after 61 do not form an AU
+# subscriber number, and the AU patterns above already own that case.
+INTL_PHONE_RE = re.compile(
+    r"(?<![0-9A-Za-z_.])\+(?!61[ \-]?\d)\d{1,3}[ \-]?(?:\d[ \-]?){6,14}\d(?!\d)")
+
+
+def _find_international_numbers(body: str) -> list[tuple[int, str]]:
+    """Non-AU international numbers -- reported, never blocking."""
+    return [(body.count("\n", 0, m.start()) + 1, m.group(0))
+            for m in INTL_PHONE_RE.finditer(body)]
+
+
+def _find_phone_near_misses(body: str) -> list[tuple[int, str]]:
+    """Values shaped like a mistyped AU number: `+61` with the wrong number of
+    subscriber digits.
+
+    A malformed number is still personal data. Anything the strict patterns
+    already catch is excluded, so a valid number is never reported twice.
+    """
+    strict = {m for _line, m in _find_phone_hits(body)}
+    out = []
+    for m in AU_NEAR_MISS_RE.finditer(body):
+        text = m.group(0)
+        if any(text in s or s in text for s in strict):
+            continue
+        digits = re.sub(r"\D", "", text)
+        if len(digits) == 11:            # +61 plus the valid 9
+            continue
+        out.append((body.count("\n", 0, m.start()) + 1, text.strip()))
+    return out
+
 
 
 def _looks_like_text(path: str) -> bool:
@@ -507,7 +761,11 @@ def _find_phone_hits(body: str) -> list[tuple[int, str]]:
 
 def check(paths: list[str], config: GuardConfig,
           path_sources: dict[str, str] | None = None,
-          read_content: bool = True) -> list[str]:
+          read_content: bool = True,
+          near_misses: list[str] | None = None) -> list[str]:
+    """Blocking problems. `near_misses`, if given and `config.enable_near_
+    misses`, is filled with mistyped-AU and non-AU international numbers --
+    reported by the caller, never blocking."""
     problems: list[str] = []
     for path in paths:
         norm = path.replace("\\", "/")
@@ -579,20 +837,79 @@ def check(paths: list[str], config: GuardConfig,
                 continue
             break
 
+        # Secrets above always apply. Everything below is the PII family, and a
+        # parser-exercising fixture may be exempted from it by exact path.
+        if norm.removeprefix("./") in config.pii_exempt_paths:
+            continue
+
+        email_hits: list[tuple[int, str]] = []
+        phone_hits: list[tuple[int, str]] = []
+        if config.enable_pii or config.enable_espocrm_detectors:
+            email_hits = _find_email_hits(body, config)
+            phone_hits = _find_phone_hits(body)
         if config.enable_pii:
-            for line, addr in _find_email_hits(body, config):
+            for line, addr in email_hits:
                 problems.append(f"{norm}:{line}: customer email address ({addr})")
-            for line, num in _find_phone_hits(body):
+            for line, num in phone_hits:
                 problems.append(f"{norm}:{line}: Australian phone number ({num})")
+
+        if near_misses is not None and config.enable_near_misses:
+            for line, num in _find_international_numbers(body):
+                near_misses.append(
+                    f"{path}:{line}: non-AU international number {num}")
+            for line, num in _find_phone_near_misses(body):
+                near_misses.append(
+                    f"{norm}:{line}: looks like a mistyped AU number ({num})")
+
+        if config.enable_espocrm_detectors:
+            if ext == ".json":
+                problems.extend(_json_name_id_pairs(norm, body))
+                problems.extend(_json_populated_pindata(norm, body))
+            else:
+                id_hits = _find_record_id_hits(body)
+                for msg in _proximity_pairing_hits(email_hits, phone_hits, id_hits):
+                    problems.append(f"{norm}:{msg}")
+                for lineno, line in enumerate(body.splitlines(), start=1):
+                    if LITERAL_ID_NAME_RE.search(line) and not NON_CONTACT_TYPE_RE.search(line):
+                        problems.append(
+                            f"{norm}:{lineno}: a record id and a \"name\" literal "
+                            "sit on the same line -- the name+id-literal shape "
+                            "that leaked real contact names before"
+                        )
 
     return problems
 
 
-def run(argv: list[str] | None, config: GuardConfig) -> int:
+def tracked_files() -> list[str]:
+    return _run("git", "ls-files")
+
+
+def _make_output_utf8_safe() -> None:
+    """A heading or path that cannot be encoded must degrade to a replacement
+    character, never take a pre-commit hook down with a codec traceback."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue                      # a redirected non-TTY stream may lack it
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass                          # already detached or not reconfigurable
+
+
+def run(argv: list[str] | None, config: GuardConfig, *,
+        staged=None, tracked=None) -> int:
+    """`staged` / `tracked` let a caller supply its own file-list functions,
+    looked up at call time (crm's tests reassign them on their wrapper)."""
+    staged = staged or staged_files
+    tracked = tracked or tracked_files
+    _make_output_utf8_safe()
     ap = argparse.ArgumentParser()
     ap.add_argument("--range", dest="rev_range",
                     help="check a commit range instead of the staged files")
     ap.add_argument("--files", nargs="*", help="check these paths explicitly")
+    ap.add_argument("--all", action="store_true",
+                    help="check every tracked file (CI mode)")
     args = ap.parse_args(argv)
 
     path_sources: dict[str, str] | None = None
@@ -612,8 +929,11 @@ def run(argv: list[str] | None, config: GuardConfig) -> int:
         paths = range_files(args.rev_range)
         asked_for = f"--range {args.rev_range}"
         path_sources = _range_path_sources(args.rev_range)
+    elif args.all:
+        paths = tracked()
+        asked_for = "--all"
     else:
-        paths = staged_files()
+        paths = staged()
         asked_for = None            # nothing was requested; the index decides
 
     # ZERO FILES IS NOT A CLEAN RESULT WHEN A POPULATION WAS ASKED FOR.
@@ -648,9 +968,27 @@ def run(argv: list[str] | None, config: GuardConfig) -> int:
               file=sys.stderr)
         return 2
 
-    problems = check(paths, config, path_sources=path_sources)
+    near_misses: list[str] = []
+    problems = check(paths, config, path_sources=path_sources,
+                     near_misses=near_misses)
+
+    def _report_near_misses() -> None:
+        # After the verdict, never folded into it: a near-miss is worth a
+        # human's eye, not a reason to stop a commit.
+        if not near_misses:
+            return
+        print("", file=sys.stderr)
+        print(f"  {len(near_misses)} near-miss value(s) -- NOT blocking, "
+              f"worth a look:", file=sys.stderr)
+        for n in near_misses:
+            print(f"    {n}", file=sys.stderr)
+        print("    A malformed number is still personal data: it identifies "
+              "a person and usually round-trips to a real number by adding "
+              "or dropping one digit.", file=sys.stderr)
+
     if not problems:
         print(f"ok -- {len(paths)} file(s) checked, nothing blocked")
+        _report_near_misses()
         return 0
 
     print(f"BLOCKED. {config.repo_holds}", file=sys.stderr)
