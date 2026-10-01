@@ -14,6 +14,7 @@ the source resolvers disagreed on, and the estimator's substitution list. Two re
 it: `fsg-tender-review` (`resolve.py` is a shim over it) and `fsg-bluebeam-steel-standards`
 (`tools/fsg_mto/sections.py`, which vendors a copy into the share payload).
 This repo decides tonnages for both, so it carries their non-negotiables.
+Since 30 Sep 2026 it also carries the shared repo tooling (leak guard, `COMMANDS.md` generator, commands-index merge driver, PR-body check, reading-path cap): `README.md` lists the modules and who wraps them.
 
 ## Invariants
 

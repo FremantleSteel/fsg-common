@@ -3,9 +3,23 @@
 Code shared by the four FSG estimating repos. Pure Python, standard library
 only.
 
-Right now it contains one module, `fsg_common.sections`: FSG's steel section
+It started as one module, `fsg_common.sections`: FSG's steel section
 library and the resolver that turns a drawing's own notation into a canonical
-`Section_ID`, or into an honest miss.
+`Section_ID`, or into an honest miss. It now carries five more, added 30 Sep and
+1 Oct 2026 as the repos' copy-pasted scripts were consolidated (crm#1719):
+
+| Module | What it is |
+|---|---|
+| `fsg_common.sections` | the section library and resolver (below) |
+| `fsg_common.leak_guard` | the leak guard, one engine for four repos; crm's EspoCRM detectors, near-misses, PII exemptions and `--all` are opt-in (#48) |
+| `fsg_common.gen_commands_index` | generates `docs/COMMANDS.md`, the task-to-command index (#47) |
+| `fsg_common.merge_commands_index` | the git merge driver for `scripts/commands_index.json` (#44) |
+| `fsg_common.pr_body` | the pull-request-body check, wrapped by each repo's `scripts/check_pr_body.py` |
+| `fsg_common.reading_path` | the compulsory-reading-path word cap |
+
+The public section snapshot no longer carries the labour rates (#46, crm#1775 D1):
+each consumer reads them from its own private file. A merge here changes nothing
+downstream until each consumer moves its pin.
 
 ```python
 from fsg_common import sections
