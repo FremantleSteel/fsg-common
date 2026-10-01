@@ -83,5 +83,5 @@ python tools/parity_report.py     # needs ../fsg-tender-review and ../fsg-bluebe
 python tools/known_issues.py      # reports, never gates
 ```
 
-CI (`.github/workflows/ci.yml`) runs the first two on the self-hosted runner; the parity report
+CI (`.github/workflows/ci.yml`) runs the first two on GitHub-hosted runners; the parity report
 needs both sibling checkouts and runs on a developer machine, per its own docstring.

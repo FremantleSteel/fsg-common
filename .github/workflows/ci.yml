@@ -8,10 +8,9 @@ name: CI
 # imports the package.
 #
 # Two jobs: `checks` (ruff) and `tests` (pytest, on both OSes this package's
-# eventual consumers run on). Self-hosted, matching every other repo in this
-# estate -- `fsg-tender-review/.github/workflows/ci.yml`'s own history notes
-# the Windows leg moved off `windows-latest` specifically to stop billing
-# GitHub minutes; a brand-new repo should not reintroduce that.
+# eventual consumers run on). GitHub-hosted runners (crm#1792, 1 Oct 2026):
+# this repository is public, so its pull_request jobs must not run on
+# self-hosted runners. Hosted minutes are free for public repositories.
 #
 # `tools/parity_report.py` deliberately does NOT run here. It needs both
 # sibling repos checked out at a pinned ref, which a private-repo checkout
@@ -32,16 +31,7 @@ concurrency:
 jobs:
   checks:
     name: Checks (ruff)
-    runs-on: [self-hosted, fsg-linux]
-    # PIP_CACHE_DIR/UV_CACHE_DIR point at the self-hosted runner's persistent
-    # cache volumes, not GitHub's own actions/cache. No `cache: pip` on
-    # setup-python below: that option makes the action run `pip cache dir`
-    # itself, which -- unlike a plain `pip install` -- hard-errors (exit 1,
-    # not just a disabled-cache warning) if the directory isn't there or
-    # writable yet, measured directly on this branch before the volumes existed.
-    env:
-      PIP_CACHE_DIR: /pip-cache
-      UV_CACHE_DIR: /uv-cache
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -117,11 +107,7 @@ jobs:
     # `__file__` -- quote identity / `canon_quote` is the named Phase 2
     # candidate -- add the Windows leg back before merging that change, not
     # after.
-    runs-on: [self-hosted, fsg-linux]
-    # See the `checks` job above for why there's no `cache: pip` here.
-    env:
-      PIP_CACHE_DIR: /pip-cache
-      UV_CACHE_DIR: /uv-cache
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 

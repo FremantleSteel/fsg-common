@@ -5,19 +5,9 @@
 # green without a new commit -- and adding `edited` to ci.yml's trigger
 # would re-run the whole suite on every body edit.
 #
-# Self-hosted, 24 Sep 2026 (org-wide hosted-minutes push, matching
-# fsg-estimating-crm#1099 and fsg-tender-review's own pr-body.yml). This job
-# used to run on ubuntu-latest with the reasoning kept above until now --
-# "a two-second check ... should not wait on the self-hosted fsg-linux
-# runner" -- and fsg-estimating-crm#1099 (22 Sep 2026) found that reasoning
-# breaks the night GitHub Actions billing lapses: both of that repo's hosted
-# jobs never started and reported "The job was not started because recent
-# account payments have failed," which several lanes chased as a phantom
-# CI failure. This job needs no NAS, no secret and no full install -- just
-# Python and the gh/GitHub context, both already on the self-hosted
-# `fsg-linux` pool that `ci.yml`'s own jobs use. Moving it there removes the
-# billing-outage failure mode and runs it on the pool that's already paid
-# for, at zero hosted cost.
+# GitHub-hosted runner (crm#1792, 1 Oct 2026): this repository is public, so
+# its pull_request jobs must not run on self-hosted runners. The job needs no
+# secret and no full install, just Python and the gh/GitHub context.
 name: PR body
 
 on:
@@ -37,7 +27,7 @@ permissions:
 jobs:
   pr-body:
     name: PR body (no AI attribution line)
-    runs-on: [self-hosted, fsg-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
