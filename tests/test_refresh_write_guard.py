@@ -174,3 +174,48 @@ def test_a_missing_anchor_is_refused():
 def test_an_empty_read_is_refused_rather_than_written_as_an_empty_library():
     assert R.validation_failures({"sections": []}) == [
         "the workbook produced no sections at all"]
+
+
+# --- fsg-common#42: a hand-kept `source` survives regeneration -------------
+
+def _row(sid, mass, **kw):
+    return {**_section(sid, "TYP", mass), "build_default": "Stick", **kw}
+
+
+def test_a_source_is_carried_forward_while_the_row_is_unchanged():
+    committed = {"sections": [_row("LYS-C10010", 1.78, source="cite")]}
+    fresh = {"sections": [_row("LYS-C10010", 1.78), _row("310UB40", 40.4)]}
+    out, dropped = R.carry_sources(fresh, committed)
+    by = {s["section_id"]: s for s in out["sections"]}
+    assert by["LYS-C10010"]["source"] == "cite"
+    assert "source" not in by["310UB40"]
+    assert dropped == []
+
+
+def test_a_changed_row_loses_its_source_and_says_so():
+    """Control for the carry above: the same code must still refuse when the
+    mass moved, or the carry is just 'always copy'."""
+    committed = {"sections": [_row("LYS-C10010", 1.78, source="cite")]}
+    fresh = {"sections": [_row("LYS-C10010", 1.90)]}
+    out, dropped = R.carry_sources(fresh, committed)
+    assert "source" not in out["sections"][0]
+    assert len(dropped) == 1 and "LYS-C10010" in dropped[0]
+
+
+def test_a_cited_row_gone_from_the_workbook_is_reported():
+    committed = {"sections": [_row("GONE", 1.0, source="cite")]}
+    _out, dropped = R.carry_sources({"sections": [_row("310UB40", 40.4)]},
+                                    committed)
+    assert len(dropped) == 1 and "GONE" in dropped[0]
+
+
+def test_no_committed_copy_carries_nothing_and_does_not_fail():
+    out, dropped = R.carry_sources({"sections": [_row("A", 1.0)]}, None)
+    assert dropped == [] and "source" not in out["sections"][0]
+
+
+def test_the_source_is_inside_the_hashed_body():
+    """`--check` compares the hash, so a carried source must move it."""
+    a = R.with_provenance({"sections": [_row("A", 1.0)]}, "w.xlsx")
+    b = R.with_provenance({"sections": [_row("A", 1.0, source="x")]}, "w.xlsx")
+    assert a["_provenance"]["content_sha256"] != b["_provenance"]["content_sha256"]

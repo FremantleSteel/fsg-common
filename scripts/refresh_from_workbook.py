@@ -404,6 +404,50 @@ def validation_failures(payload: dict) -> list[str]:
     return problems
 
 
+# --------------------------------------------------------------------------
+# Hand-kept `source` citations (fsg-common#42).
+#
+# `90_Lists` has no source column, so the regenerator used to emit rows with
+# no `source` and silently dropped the manufacturer citation tools#64 put on
+# four purlin rows (lost in the 1 Oct 2026 regeneration, fsg-common#41). A
+# citation is provenance a person wrote. It is carried forward from the
+# committed copy, but ONLY while the row it vouches for is unchanged: same id
+# and every captured field the same (mass, category, build default, plate
+# figures -- the snapshot carries no description column). A row whose mass
+# moved no longer has a citation that supports it, so the source is dropped
+# and the caller is TOLD, never left to find out afterwards. The source is
+# part of the hashed body, so `--check` stays consistent with it.
+_ROW_FIELDS = ("category", "build_default", "mass_kg_per_m",
+               "plate_thickness_mm", "plate_kg_per_m2")
+
+
+def carry_sources(payload: dict, committed: dict | None):
+    """Return (payload with sources carried forward, notes on any dropped).
+
+    A cited committed row that changed, or is gone from the workbook, is
+    reported in the second element, not discarded quietly.
+    """
+    dropped: list[str] = []
+    if not committed:
+        return payload, dropped
+    old = {s.get("section_id"): s for s in committed.get("sections") or []
+           if s.get("source")}
+    seen = set()
+    for row in payload["sections"]:
+        prev = old.get(row["section_id"])
+        if prev is None:
+            continue
+        seen.add(row["section_id"])
+        if all(prev.get(f) == row.get(f) for f in _ROW_FIELDS):
+            row["source"] = prev["source"]
+        else:
+            dropped.append(f"{row['section_id']}: row changed since its "
+                           f"source was written, source NOT carried")
+    for sid in sorted(set(old) - seen):
+        dropped.append(f"{sid}: no longer in the workbook, source dropped")
+    return payload, dropped
+
+
 def with_provenance(payload: dict, workbook: str,
                     override: str | None = None) -> dict:
     body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -464,8 +508,10 @@ def main(argv=None) -> int:
                                         workbook_date=wb_date,
                                         committed=have)
 
-    fresh = with_provenance(read_workbook(args.workbook), args.workbook,
-                            override=args.override)
+    carried, dropped_sources = carry_sources(read_workbook(args.workbook), have)
+    for line in dropped_sources:
+        print(f"SOURCE DROPPED -- {line}")
+    fresh = with_provenance(carried, args.workbook, override=args.override)
 
     if args.check:
         if have is None:
