@@ -387,11 +387,11 @@ def test_the_four_manufacturer_sourced_purlin_rows_resolve_exact(raw, expected):
     assert section.section_id == raw, raw
     assert section.mass_kg_per_m == expected_mass, raw
     assert how == "exact", raw
-    # The manufacturer citation these rows carried as `source` (fsg-common#37)
-    # does not survive regeneration: the template (tools#64, approved) now
-    # holds them as ordinary 90_Lists rows and the regenerator has no source
-    # column. Provenance is the workbook's own row, so none is asserted here.
-    assert section.source is None, raw
+    # The manufacturer citation (fsg-common#37) survives regeneration: the
+    # regenerator carries a row's `source` forward while the row is unchanged
+    # (fsg-common#42), so it is asserted again here.
+    assert section.source, raw
+    assert "tools#64" in section.source, raw
 
 
 def test_the_53_detailer_lines_this_closes_are_named_not_recomputed():
@@ -407,9 +407,10 @@ def test_the_53_detailer_lines_this_closes_are_named_not_recomputed():
 
 
 def test_a_manufacturer_source_citation_is_the_exception_not_the_rule():
-    """Since the 1 Oct 2026 regeneration the four purlin rows are ordinary
-    `90_Lists` rows, so no row carries a `source`. One appearing would be a
-    hand-edit of the generated snapshot, which the regenerator would drop."""
+    """Exactly the four tools#64 purlin rows carry a `source`. Any other row
+    appearing would be a hand-edit of the generated snapshot; one of these
+    four missing is the fsg-common#42 loss."""
     lib = sections.library()
-    sourced = [s.section_id for s in lib.sections if s.source is not None]
-    assert sourced == []
+    sourced = sorted(s.section_id for s in lib.sections
+                     if s.source is not None)
+    assert sourced == sorted(_TOOLS_64_ROWS)
