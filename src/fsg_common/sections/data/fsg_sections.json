@@ -5,12 +5,11 @@
    "hollow_piece_weight_kg": "90_Lists!AJ23",
    "l_max_kg_per_m": "90_Lists!AI10",
    "m_max_kg_per_m": "90_Lists!AI11",
-   "rates_block": "90_Lists!AH14:AJ19",
    "steel_density_kg_m2_mm": "90_Lists!AJ25"
   },
-  "content_sha256": "ee58ac0d85e3ba55",
+  "content_sha256": "2931ab34bd4fbea3",
   "generated": "2026-10-01",
-  "note": "Duplicated from the live estimating workbook, not read at run time. Re-run scripts/refresh_from_workbook.py when the workbook's section list or labour rates change.",
+  "note": "Duplicated from the live estimating workbook, not read at run time. Re-run scripts/refresh_from_workbook.py when the workbook's section list changes. Labour rates are deliberately not carried.",
   "sheet": "90_Lists",
   "source": "../fsg-estimating-tools/templates/FSG_Estimating_Template.xlsx"
  },
@@ -20,32 +19,6 @@
   "l_max_kg_per_m": 30.0,
   "m_max_kg_per_m": 60.0,
   "steel_density_kg_m2_mm": 7.85
- },
- "labour_rates": {
-  "EL": {
-   "frame_hrs_per_t": 75.0,
-   "stick_hrs_per_t": 50.0
-  },
-  "H": {
-   "frame_hrs_per_t": 27.0,
-   "stick_hrs_per_t": 18.0
-  },
-  "L": {
-   "frame_hrs_per_t": 60.0,
-   "stick_hrs_per_t": 40.0
-  },
-  "M": {
-   "frame_hrs_per_t": 38.0,
-   "stick_hrs_per_t": 25.0
-  },
-  "PL/BIS": {
-   "frame_hrs_per_t": 75.0,
-   "stick_hrs_per_t": 50.0
-  },
-  "WB": {
-   "frame_hrs_per_t": 23.0,
-   "stick_hrs_per_t": 15.0
-  }
  },
  "sections": [
   {

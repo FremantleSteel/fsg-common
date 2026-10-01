@@ -124,7 +124,7 @@ def test_the_stale_workbook_passes_the_CONTENT_guard(tmp_path, data_dir):
     """Which is why the provenance guard had to exist. Read the stale workbook
     directly and check it: no problems at all."""
     stale = _workbook(tmp_path / "stale.xlsx", pfc75=6.65, rhs=17.92)
-    assert R.validation_failures(R.read_workbook(str(stale))) == []
+    assert R.validation_failures(R.read_workbook(str(stale))[0]) == []
 
 
 def test_override_writes_and_RECORDS_the_reason_in_the_file(tmp_path, data_dir):
@@ -186,3 +186,23 @@ def test_check_writes_nothing_even_when_it_refuses(tmp_path, data_dir):
     twin = _workbook(tmp_path / "twin.xlsx")
     R.main(["--workbook", str(twin), "--check"])
     assert (data_dir / "fsg_sections.json").read_bytes() == before
+
+
+def test_labour_rates_never_reach_the_public_file_but_go_to_the_private_one(
+        tmp_path, data_dir):
+    """crm#1775 D1. Control: with --labour-rates-out the rates ARE read and written,
+    so the absence from the packaged file is a decision, not a failed read."""
+    wb = _workbook(tmp_path / "live.xlsx")
+    priv = tmp_path / "private" / "rates.json"
+    priv.parent.mkdir()
+    assert R.main(["--workbook", str(wb), "--labour-rates-out", str(priv)]) == 0
+    assert "labour_rates" not in _library(data_dir)
+    assert "rates_block" not in _library(data_dir)["_provenance"]["cells"]
+    rates = json.loads(priv.read_text(encoding="utf-8"))["labour_rates"]
+    assert set(rates) == {"EL", "L", "M", "H", "WB", "PL/BIS"}
+
+
+def test_the_committed_snapshot_carries_no_labour_rates():
+    from fsg_common.sections import _snapshot
+    data = json.loads(Path(_snapshot.default_snapshot_path()).read_text(encoding="utf-8"))
+    assert "labour_rates" not in data
