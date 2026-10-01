@@ -100,7 +100,7 @@ from the package so `classification.Section` still resolves:
 from fsg_common.sections import Section  # noqa: F401
 ```
 
-`classification.sections()`, `config()`, `labour_rates()` and the band and
+`classification.sections()`, `config()`, `labour_rates()` (from a private file since crm#1775) and the band and
 weight-class functions stay where they are. They read the same JSON file, and
 that file should become the packaged one so there is a single snapshot rather
 than two that can drift -- which is the whole point.

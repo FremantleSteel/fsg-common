@@ -1,4 +1,8 @@
-"""Regenerate the packaged copy of the FSG section library and labour rates.
+"""Regenerate the packaged copy of the FSG section library.
+
+**Labour rates are NOT in the packaged file** (crm#1775 D1): this repo is public.
+`--labour-rates-out <path>` writes them, from the same workbook read, to a file
+OUTSIDE this repo (the private consumer, fsg-tender-review, carries it).
 
 David's decision, 21 Aug 2026: duplicate `90_Lists` rather than import from
 the workbook at run time. That keeps every consumer standalone and testable
@@ -127,13 +131,14 @@ COL_SECTION_ID, COL_CATEGORY = 1, 2
 COL_BUILD_DEFAULT = 4
 COL_MASS_FINAL, COL_PLATE_THK, COL_PLATE_KG_M2 = 7, 8, 9
 
-# Weight-class boundaries and labour rates live in 90_Lists!AI9:AJ19. Cell
-# references are recorded with the values so a reader can go and check them.
+# Weight-class boundaries live in 90_Lists!AI9:AI11. Cell references are recorded
+# with the values so a reader can check them. (Labour rates are private, never
+# written to the packaged file.)
+
 CELLS = {
     "el_max_kg_per_m": "90_Lists!AI9",
     "l_max_kg_per_m": "90_Lists!AI10",
     "m_max_kg_per_m": "90_Lists!AI11",
-    "rates_block": "90_Lists!AH14:AJ19",
     "hollow_piece_weight_kg": "90_Lists!AJ23",
     "steel_density_kg_m2_mm": "90_Lists!AJ25",
 }
@@ -148,7 +153,8 @@ def _num(v):
         return None
 
 
-def read_workbook(path: str) -> dict:
+def read_workbook(path: str) -> tuple[dict, dict]:
+    """(public payload, private labour rates)."""
     import openpyxl
 
     # data_only=True is required, not optional: the columns we want are computed.
@@ -196,7 +202,9 @@ def read_workbook(path: str) -> dict:
     finally:
         wb.close()
 
-    return {"sections": sections, "labour_rates": rates, "config": config}
+    # `rates` is returned beside the payload, never inside it: the payload is
+    # what is hashed and written to the PUBLIC packaged file.
+    return {"sections": sections, "config": config}, rates
 
 
 # --------------------------------------------------------------------------
@@ -468,7 +476,7 @@ def with_provenance(payload: dict, workbook: str,
             "note": (
                 "Duplicated from the live estimating workbook, not read at run "
                 "time. Re-run scripts/refresh_from_workbook.py when the workbook's "
-                "section list or labour rates change."
+                "section list changes. Labour rates are deliberately not carried."
             ),
         },
         **payload,
@@ -479,6 +487,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--workbook", default=DEFAULT_WORKBOOK)
+    ap.add_argument("--labour-rates-out", default=None,
+                    help="also write the labour rates, OUTSIDE this repo, to this path")
     ap.add_argument("--check", action="store_true",
                     help="report drift against the committed copy, write nothing")
     ap.add_argument("--override", metavar="REASON",
@@ -508,7 +518,8 @@ def main(argv=None) -> int:
                                         workbook_date=wb_date,
                                         committed=have)
 
-    carried, dropped_sources = carry_sources(read_workbook(args.workbook), have)
+    public, private_rates = read_workbook(args.workbook)
+    carried, dropped_sources = carry_sources(public, have)
     for line in dropped_sources:
         print(f"SOURCE DROPPED -- {line}")
     fresh = with_provenance(carried, args.workbook, override=args.override)
@@ -604,7 +615,11 @@ def main(argv=None) -> int:
         json.dump(fresh, fh, indent=1, sort_keys=True)
     print(f"wrote {out_path}")
     print(f"  {len(fresh['sections'])} sections")
-    print(f"  labour classes: {', '.join(fresh['labour_rates'])}")
+    if args.labour_rates_out:
+        with open(args.labour_rates_out, "w", encoding="utf-8") as fh:
+            json.dump({"labour_rates": private_rates}, fh, indent=1, sort_keys=True)
+        print(f"  labour rates written to {args.labour_rates_out} "
+              f"({len(private_rates)} classes) -- keep that file out of any public repo")
     print(f"  hash {fresh['_provenance']['content_sha256']}")
     return 0
 
