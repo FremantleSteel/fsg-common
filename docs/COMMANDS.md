@@ -59,7 +59,7 @@ The section library and labour rates are a generated snapshot of the workbook's 
 
 | Run | What it does | Defined in |
 | --- | --- | --- |
-| `python scripts/gen_commands_index.py` | Generate docs/COMMANDS.md -- the task-to-command index. | `scripts/gen_commands_index.py` |
+| `python scripts/gen_commands_index.py` | Generate docs/COMMANDS.md -- the task-to-command index (thin wrapper). | `scripts/gen_commands_index.py` |
 
 ## Prep for the GitHub-org rename (crm#655 gate line 7)
 
