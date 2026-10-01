@@ -51,7 +51,7 @@ The section library and labour rates are a generated snapshot of the workbook's 
 
 | Run | What it does | Defined in |
 | --- | --- | --- |
-| `python scripts/refresh_from_workbook.py` | Regenerate the packaged copy of the FSG section library and labour rates. | `scripts/refresh_from_workbook.py` |
+| `python scripts/refresh_from_workbook.py` | Regenerate the packaged copy of the FSG section library. | `scripts/refresh_from_workbook.py` |
 
 ## Find a command, and keep this repo's own index honest
 
