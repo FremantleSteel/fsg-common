@@ -121,19 +121,60 @@ def test_fsg_ids_round_the_mass_so_matching_is_on_mass_not_digits():
     assert how == "canonical"
 
 
-# --- bare cold-formed codes, NOT aliased to any vendor (tr#280 tried it 5
-# Sep 2026; reverted 7 Sep 2026, fsg-tender-review#184 Q26) ----------------
+# --- bare cold-formed codes read as Lysaght (fsg-tender-review#184 Q26,
+# ANSWERED 30 Sep 2026: "Does a bare cold formed code mean lysaght - Yes").
+# tr#280 aliased them 6 Sep, reverted 7 Sep on the first answer; back now. --
 
-def test_a_bare_cold_formed_code_refuses_rather_than_assumes_a_vendor():
-    """tr#280 aliased these to their Lysaght row for one day. David, relaying
-    the estimating team's answer to Q26: do not assume Lysaght -- leave a
-    bare code unresolved. Same 9 real archive pairs #7 anchored on, now
-    checked the other way."""
-    for bare in ("Z20024", "C15019", "Z20015", "Z15019", "C10015",
-                 "C20024", "C15015", "C15012", "C15024"):
-        section, how = sections.resolve(bare)
-        assert section is None, bare
-        assert how == "cold-formed", bare
+_BARE_TO_LYS = [
+    ("Z20024", "LYS-Z20024"), ("C15019", "LYS-C15019"),
+    ("Z20015", "LYS-Z20015"), ("Z15019", "LYS-Z15019"),
+    ("C10015", "LYS-C10015"), ("C20024", "LYS-C20024"),
+    ("C15015", "LYS-C15015"), ("C15012", "LYS-C15012"),
+    ("C15024", "LYS-C15024"),
+]
+
+
+@pytest.mark.parametrize("bare,lys", _BARE_TO_LYS)
+def test_a_bare_cold_formed_code_reads_as_its_lysaght_row(bare, lys):
+    section, how = sections.resolve(bare)
+    assert section is not None, bare
+    assert section.section_id == lys
+    assert how == "cold-formed-bare-lysaght", bare
+    # The library's own mass for that row, never another wall's.
+    assert section.mass_kg_per_m == sections.resolve(lys)[0].mass_kg_per_m
+
+
+def test_the_bare_alias_never_snaps_to_the_nearest_wall():
+    """The 62%-heavy trap (Q2): Z20015 must be the 1.5 mm wall, never Z20024."""
+    z15, _ = sections.resolve("Z20015")
+    z24, _ = sections.resolve("Z20024")
+    assert z15.section_id == "LYS-Z20015"
+    assert z24.section_id == "LYS-Z20024"
+    assert z24.mass_kg_per_m > z15.mass_kg_per_m * 1.5
+
+
+@pytest.mark.parametrize("bare", ["Z99999", "C30024", "Z20017", "C20014"])
+def test_a_bare_code_with_no_lysaght_row_refuses_not_snaps(bare):
+    """Control for the trap: a well-formed code whose LYS- row is absent is an
+    honest `cold-formed` refusal, not its nearest neighbour."""
+    section, how = sections.resolve(bare)
+    assert section is None, bare
+    assert how == "cold-formed", bare
+
+
+def test_a_bare_code_only_a_stramit_row_carries_refuses_not_maps_to_str():
+    """`STR-Z25019` exists and `LYS-Z25019` does not. Bare means Lysaght, so
+    `Z25019` refuses; it must not fall to the Stramit row."""
+    assert sections.resolve("STR-Z25019")[0] is not None
+    section, how = sections.resolve("Z25019")
+    assert section is None
+    assert how == "cold-formed"
+
+
+def test_a_schedule_marked_bare_code_is_not_aliased():
+    """Raw text only: `P7 Z20015` is a schedule line, never measured for this."""
+    _section, how = sections.resolve("P7 Z20015")
+    assert how != "cold-formed-bare-lysaght"
 
 
 def test_a_vendor_prefixed_cold_formed_code_still_resolves_exact():
@@ -326,7 +367,7 @@ def test_every_anchor_resolves_without_raising(raw, rule):
     """The rule text is in the id so a failure names the rule it broke."""
     section, how = sections.resolve(raw)
     assert how in ("exact", "canonical", "nearest", "cold-formed",
-                   "cold-formed-vendor-equivalent",
+                   "cold-formed-vendor-equivalent", "cold-formed-bare-lysaght",
                    "material-mismatch", "shape-modifier", "substitution",
                    "unresolved"), f"{raw}: {rule}"
     if section is not None:
@@ -414,3 +455,35 @@ def test_a_manufacturer_source_citation_is_the_exception_not_the_rule():
     sourced = sorted(s.section_id for s in lib.sections
                      if s.source is not None)
     assert sourced == sorted(_TOOLS_64_ROWS)
+
+
+# --- fsg-tender-review#184 Q27 and Q31, recorded 30 Sep 2026 -------------
+
+def test_the_str_lys_equivalence_is_recorded_and_matches_the_resolver():
+    from fsg_common.sections import substitutions
+    from fsg_common.sections._resolver import COLD_FORMED_VENDORS
+    recorded = substitutions.vendor_equivalences()
+    assert len(recorded) == 1
+    eq = recorded[0]
+    assert eq.date == "2026-09-30"
+    assert set(eq.vendors) == set(COLD_FORMED_VENDORS) == {"STR", "LYS"}
+    # Control: the equivalence is exactly what the resolver does.
+    assert sections.resolve("STR-C20024")[1] == "cold-formed-vendor-equivalent"
+
+
+def test_bt_ct_ids_carry_their_nominal_mass_as_an_fsg_convention():
+    """Q31, 30 Sep 2026: '11 = 11kg'. The rows whose stored mass equals the
+    number at the end of their own id are a convention, not errors: each
+    resolves exact to that very mass, and nothing re-derives it."""
+    import re
+    rows = []
+    for s in sections.library().sections:
+        if not re.match(r"^\d+(\.\d+)?(BT|CT)\d+(\.\d+)?$", s.section_id):
+            continue
+        tail = float(re.search(r"(\d+(?:\.\d+)?)$", s.section_id).group(1))
+        if s.mass_kg_per_m is not None and abs(tail - s.mass_kg_per_m) < 1e-9:
+            rows.append(s)
+    assert len(rows) >= 40, "the convention rows have gone missing"
+    for row in rows:
+        hit, how = sections.resolve(row.section_id)
+        assert how == "exact" and hit.mass_kg_per_m == row.mass_kg_per_m, row.section_id
