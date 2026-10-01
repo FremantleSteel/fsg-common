@@ -286,10 +286,9 @@ def test_floor_plate_is_priced_by_area():
     section, _how = sections.resolve("6 mm FLOOR PLATE")
     assert section.section_id == "6FP"
     assert section.is_plate
-    # 49.1 until 24 Sep 2026: that was 90_Lists column G's stale formula cache
-    # (fsg-estimating-tools#385), 2.00 kg over the true 6 mm plate mass of
-    # 47.1 kg/m2 in column F. The anchor was pinning the defect.
-    assert section.kg_per_m2 == 47.1
+    # 49.1 until 24 Sep 2026 (stale formula cache, tools#385), 47.1 then, and
+    # 49.1 again from 1 Oct 2026: David chose Master Wt/m, tools#142.
+    assert section.kg_per_m2 == 49.1
 
 
 def test_mass_of_hands_back_an_AREA_mass_for_floor_plate():
@@ -312,8 +311,9 @@ def test_mass_of_hands_back_an_AREA_mass_for_floor_plate():
     resolver without moving any answer. Raised for that repo; run
     `tools/known_issues.py` for the live reproducer.
     """
-    assert sections.mass_of("6 mm FLOOR PLATE") == 47.1
-    assert sections.resolve("6 mm FLOOR PLATE")[0].kg_per_m2 == 47.1
+    # 49.1 per Master Wt/m (David, tools#142, 1 Oct 2026).
+    assert sections.mass_of("6 mm FLOOR PLATE") == 49.1
+    assert sections.resolve("6 mm FLOOR PLATE")[0].kg_per_m2 == 49.1
     # the PL family, where the documented contract does hold
     assert sections.mass_of("12 PL") is None
     assert sections.resolve("12 PL")[0].is_plate
@@ -387,9 +387,11 @@ def test_the_four_manufacturer_sourced_purlin_rows_resolve_exact(raw, expected):
     assert section.section_id == raw, raw
     assert section.mass_kg_per_m == expected_mass, raw
     assert how == "exact", raw
-    assert section.source is not None and "tools#64" in section.source, (
-        f"{raw}: a manufacturer-sourced row must carry its citation"
-    )
+    # The manufacturer citation these rows carried as `source` (fsg-common#37)
+    # does not survive regeneration: the template (tools#64, approved) now
+    # holds them as ordinary 90_Lists rows and the regenerator has no source
+    # column. Provenance is the workbook's own row, so none is asserted here.
+    assert section.source is None, raw
 
 
 def test_the_53_detailer_lines_this_closes_are_named_not_recomputed():
@@ -405,9 +407,9 @@ def test_the_53_detailer_lines_this_closes_are_named_not_recomputed():
 
 
 def test_a_manufacturer_source_citation_is_the_exception_not_the_rule():
-    """Every ordinary `90_Lists` row still carries no `source` -- only the
-    four rows this PR adds do. A citation spreading to rows that came from
-    the workbook would be a false attribution."""
+    """Since the 1 Oct 2026 regeneration the four purlin rows are ordinary
+    `90_Lists` rows, so no row carries a `source`. One appearing would be a
+    hand-edit of the generated snapshot, which the regenerator would drop."""
     lib = sections.library()
     sourced = [s.section_id for s in lib.sections if s.source is not None]
-    assert sorted(sourced) == sorted(_TOOLS_64_ROWS)
+    assert sourced == []

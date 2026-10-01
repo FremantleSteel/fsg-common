@@ -8,8 +8,8 @@
    "rates_block": "90_Lists!AH14:AJ19",
    "steel_density_kg_m2_mm": "90_Lists!AJ25"
   },
-  "content_sha256": "0db65e68e4549b34",
-  "generated": "2026-09-24",
+  "content_sha256": "5828161db578c9d6",
+  "generated": "2026-10-01",
   "note": "Duplicated from the live estimating workbook, not read at run time. Re-run scripts/refresh_from_workbook.py when the workbook's section list or labour rates change.",
   "sheet": "90_Lists",
   "source": "../fsg-estimating-tools/templates/FSG_Estimating_Template.xlsx"
@@ -267,7 +267,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 8.33,
+   "mass_kg_per_m": 9.34,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "100PFC"
@@ -507,7 +507,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 78.5,
+   "mass_kg_per_m": 80.5,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "10FP"
@@ -803,7 +803,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 11.9,
+   "mass_kg_per_m": 13.42,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "125PFC"
@@ -931,7 +931,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 94.2,
+   "mass_kg_per_m": 96.2,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "12FP"
@@ -3667,7 +3667,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 23.55,
+   "mass_kg_per_m": 25.55,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "3FP"
@@ -4251,7 +4251,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 31.4,
+   "mass_kg_per_m": 33.4,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "4FP"
@@ -4707,7 +4707,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 39.25,
+   "mass_kg_per_m": 41.25,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "5FP"
@@ -5123,7 +5123,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 47.1,
+   "mass_kg_per_m": 49.1,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "6FP"
@@ -5379,7 +5379,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 5.92,
+   "mass_kg_per_m": 6.65,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "75PFC"
@@ -5755,7 +5755,7 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 62.8,
+   "mass_kg_per_m": 64.8,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "8FP"
@@ -5995,15 +5995,6 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 1.78,
-   "plate_kg_per_m2": null,
-   "plate_thickness_mm": null,
-   "section_id": "LYS-C10010",
-   "source": "Lysaght Purlins -- Zeds and Cees Design and Installation Guide (BLY0111_B, 07/2026), \u00a72.2 \"Dimensions of Zeds & Cees\", row Z/C10010 (t=1.0mm, D=102mm): mass 1.78 kg/m. https://cdn.dcs.lysaght.com/download/lysaght-zeds-cees-purlins-and-girts-user-guide -- read 26 Sep 2026. Awaiting David's approval, tools#64."
-  },
-  {
-   "build_default": "Stick",
-   "category": "TYP",
    "mass_kg_per_m": 2.025,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
@@ -6084,28 +6075,10 @@
   {
    "build_default": "Stick",
    "category": "TYP",
-   "mass_kg_per_m": 6.5,
-   "plate_kg_per_m2": null,
-   "plate_thickness_mm": null,
-   "section_id": "LYS-C25019",
-   "source": "Lysaght Purlins -- Zeds and Cees Design and Installation Guide (BLY0111_B, 07/2026), \u00a72.2 \"Dimensions of Zeds & Cees\", row Z/C25019 (t=1.9mm, D=254mm): mass 6.50 kg/m. https://cdn.dcs.lysaght.com/download/lysaght-zeds-cees-purlins-and-girts-user-guide -- read 26 Sep 2026. Awaiting David's approval, tools#64."
-  },
-  {
-   "build_default": "Stick",
-   "category": "TYP",
    "mass_kg_per_m": 3.206,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
    "section_id": "LYS-Z10019"
-  },
-  {
-   "build_default": "Stick",
-   "category": "TYP",
-   "mass_kg_per_m": 2.89,
-   "plate_kg_per_m2": null,
-   "plate_thickness_mm": null,
-   "section_id": "LYS-Z15012",
-   "source": "Lysaght Purlins -- Zeds and Cees Design and Installation Guide (BLY0111_B, 07/2026), \u00a72.2 \"Dimensions of Zeds & Cees\", row Z/C15012 (t=1.2mm, D=152mm): mass 2.89 kg/m. https://cdn.dcs.lysaght.com/download/lysaght-zeds-cees-purlins-and-girts-user-guide -- read 26 Sep 2026. Awaiting David's approval, tools#64."
   },
   {
    "build_default": "Stick",
@@ -6150,11 +6123,50 @@
   {
    "build_default": "Stick",
    "category": "TYP",
+   "mass_kg_per_m": 1.78,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "LYS-C10010"
+  },
+  {
+   "build_default": "Stick",
+   "category": "TYP",
+   "mass_kg_per_m": 6.5,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "LYS-C25019"
+  },
+  {
+   "build_default": "Stick",
+   "category": "TYP",
+   "mass_kg_per_m": 2.89,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "LYS-Z15012"
+  },
+  {
+   "build_default": "Stick",
+   "category": "TYP",
    "mass_kg_per_m": 6.49,
    "plate_kg_per_m2": null,
    "plate_thickness_mm": null,
-   "section_id": "STR-Z25019",
-   "source": "Stratco Maxi-Purlin Z & C Section Properties booklet (ZY-BRO-PURGIRTSA), \"Maxi-Purlin Z and C Section Dimensions\" table, row 250-19 / MXZ250-19 (t=1.9mm, D=250mm): mass 6.49 kg/m. https://www.stratco.com.au/siteassets/pdfs/steel_framing_purlins_maxi-purlin.pdf -- read 26 Sep 2026 (via archive.org snapshot, live URL blocked direct fetch). Stratco's own standard (non-Maxi) purlin range may carry slightly different dimensions per that booklet's own note; not yet cross-checked against the standard span-table book. Awaiting David's approval, tools#64."
+   "section_id": "STR-Z25019"
+  },
+  {
+   "build_default": "Stick",
+   "category": "HS",
+   "mass_kg_per_m": 2.5,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "25NB"
+  },
+  {
+   "build_default": "Stick",
+   "category": "HS",
+   "mass_kg_per_m": 3.38,
+   "plate_kg_per_m2": null,
+   "plate_thickness_mm": null,
+   "section_id": "32NB"
   }
  ]
 }
