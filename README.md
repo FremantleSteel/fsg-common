@@ -5,8 +5,8 @@ only.
 
 It started as one module, `fsg_common.sections`: FSG's steel section
 library and the resolver that turns a drawing's own notation into a canonical
-`Section_ID`, or into an honest miss. It now carries five more, added 30 Sep and
-1 Oct 2026 as the repos' copy-pasted scripts were consolidated (crm#1719):
+`Section_ID`, or into an honest miss. It now carries seven more, added 30 Sep to
+3 Oct 2026 as the repos' copy-pasted scripts were consolidated (crm#1719):
 
 | Module | What it is |
 |---|---|
@@ -16,6 +16,8 @@ library and the resolver that turns a drawing's own notation into a canonical
 | `fsg_common.merge_commands_index` | the git merge driver for `scripts/commands_index.json` (#44) |
 | `fsg_common.pr_body` | the pull-request-body check, wrapped by each repo's `scripts/check_pr_body.py` |
 | `fsg_common.reading_path` | the compulsory-reading-path word cap |
+| `fsg_common.gh_pr_create` | opens a PR after stripping attribution and running the PR-body check, wrapped by each repo's `scripts/gh_pr_create.py` (crm-only until 3 Oct) |
+| `fsg_common.merge_on_green` | merges a PR only when its checks are green, then prunes the worktree, wrapped by each repo's `scripts/merge_on_green.py` (crm-only until 3 Oct) |
 
 The public section snapshot no longer carries the labour rates (#46, crm#1775 D1):
 each consumer reads them from its own private file. A merge here changes nothing

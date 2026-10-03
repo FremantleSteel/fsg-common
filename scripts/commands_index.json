@@ -31,6 +31,11 @@
       "id": "check-the-reading-path-word-cap",
       "title": "Check the estate-wide compulsory reading path stays under its word cap",
       "blurb": "crm#557/crm#635, estate-wide rollout 19 Sep 2026: one CLAUDE.md per repo must stay under 30,500 words in total, because a doc edit in any one repo can push the shared total over and turn an unrelated repo's PRs red. Narrowed, not raised, 25 Sep 2026 (crm#1009): fsg-tender-review/docs/README.md is no longer counted -- it is read on demand, not at session start, and removing it from the count restored real headroom without trimming any content. The real logic lives in `fsg_common.reading_path` -- this is fsg-common's own thin wrapper, same as the copy in each of the other four repos; each names which repo it is running in and calls the shared `main()`. Needs FSG_COMMON_PAT (or GH_TOKEN/GITHUB_TOKEN) to read the four private repos over the API; refuses rather than passing without one."
+    },
+    {
+      "id": "open-and-merge-a-pull-request",
+      "title": "Open a pull request, and merge one only when it is green",
+      "blurb": "crm#1719: the PR helpers every repo shares, wrapped from `fsg_common.gh_pr_create` and `fsg_common.merge_on_green`. `gh_pr_create.py` strips attribution lines and runs the PR-body check BEFORE the PR exists, so the gate cannot fail after the fact; `merge_on_green.py` refuses a red, draft, conflicting or badly-bodied PR, waits for pending checks, squash-merges and prunes the local worktree. A check that never ran is absent, not passed."
     }
   ],
   "assign": {
@@ -40,7 +45,9 @@
     "gen_commands_index.py": "repo-hygiene",
     "rename_github_org.py": "org-rename-prep",
     "check_pr_body.py": "check-a-pull-request-body",
-    "check_reading_path_word_count.py": "check-the-reading-path-word-cap"
+    "check_reading_path_word_count.py": "check-the-reading-path-word-cap",
+    "gh_pr_create.py": "open-and-merge-a-pull-request",
+    "merge_on_green.py": "open-and-merge-a-pull-request"
   },
   "aliases": {
     "did my resolver change break the other two repos": "python tools/parity_report.py",
@@ -51,6 +58,8 @@
     "is the packaged section snapshot stale": "python scripts/refresh_from_workbook.py --check",
     "what commands exist in this repo / I know the task, not the tool's name": "python scripts/gen_commands_index.py",
     "rename the github org / replace Rostov-au everywhere": "python scripts/rename_github_org.py <new-org>",
-    "is the reading path over the word cap": "python scripts/check_reading_path_word_count.py"
+    "is the reading path over the word cap": "python scripts/check_reading_path_word_count.py",
+    "open a pull request with the body checked and attribution stripped": "python scripts/gh_pr_create.py -R FremantleSteel/fsg-common --body-file pr_body.md --title \"...\"",
+    "merge a PR only if its checks are green, then prune": "python scripts/merge_on_green.py <pr> -R FremantleSteel/fsg-common"
   }
 }

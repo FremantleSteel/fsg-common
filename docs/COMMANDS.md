@@ -11,7 +11,7 @@ Look here when you know the task and not the tool's name. Every description
 below is the tool's own docstring or `help=` string, quoted verbatim -- if one
 reads badly, fix it at the source and regenerate.
 
-Generated from the tracked tree: **0 CLI subcommands**, **7 scripts**, **0 script-level subcommands**, **0 importable helpers** (not commands).
+Generated from the tracked tree: **0 CLI subcommands**, **9 scripts**, **0 script-level subcommands**, **0 importable helpers** (not commands).
 
 ```
 python scripts/gen_commands_index.py           # regenerate
@@ -30,6 +30,8 @@ looking for something and the word you tried was not here.
 | do bluebeam and tender-review still answer the same | `python tools/parity_report.py` |
 | is the packaged section snapshot stale | `python scripts/refresh_from_workbook.py --check` |
 | is the reading path over the word cap | `python scripts/check_reading_path_word_count.py` |
+| merge a PR only if its checks are green, then prune | `python scripts/merge_on_green.py <pr> -R FremantleSteel/fsg-common` |
+| open a pull request with the body checked and attribution stripped | `python scripts/gh_pr_create.py -R FremantleSteel/fsg-common --body-file pr_body.md --title "..."` |
 | regenerate the section library | `python scripts/refresh_from_workbook.py` |
 | rename the github org / replace Rostov-au everywhere | `python scripts/rename_github_org.py <new-org>` |
 | was the 273 CHS 6.4 rounding disagreement between the two repos really fixed | `python tools/known_issues.py` |
@@ -84,6 +86,15 @@ crm#557/crm#635, estate-wide rollout 19 Sep 2026: one CLAUDE.md per repo must st
 | Run | What it does | Defined in |
 | --- | --- | --- |
 | `python scripts/check_reading_path_word_count.py` | fsg-common's own copy of the estate-wide reading-path word gate. | `scripts/check_reading_path_word_count.py` |
+
+## Open a pull request, and merge one only when it is green
+
+crm#1719: the PR helpers every repo shares, wrapped from `fsg_common.gh_pr_create` and `fsg_common.merge_on_green`. `gh_pr_create.py` strips attribution lines and runs the PR-body check BEFORE the PR exists, so the gate cannot fail after the fact; `merge_on_green.py` refuses a red, draft, conflicting or badly-bodied PR, waits for pending checks, squash-merges and prunes the local worktree. A check that never ran is absent, not passed.
+
+| Run | What it does | Defined in |
+| --- | --- | --- |
+| `python scripts/gh_pr_create.py` | Open a pull request with `gh pr create`, after checking the body. | `scripts/gh_pr_create.py` |
+| `python scripts/merge_on_green.py` | Merge a PR only if its checks are green, then prune. | `scripts/merge_on_green.py` |
 
 ## Gaps
 
