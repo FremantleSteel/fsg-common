@@ -42,7 +42,7 @@ def rule(title: str) -> None:
 def issue_1_chs_wall() -> bool:
     """RESOLVED IN TWO STEPS -- 7 Sep 2026 (verdict) and 18 Sep 2026 (mass).
     Was the one notation the two source resolvers disagreed about -- item 1
-    of Rostov-au/fsg-tender-review#184, "Questions for the estimators".
+    of FremantleSteel/fsg-tender-review#184, "Questions for the estimators".
 
     7 Sep 2026: David, relaying the estimating team's answer, converged both
     resolvers on `canonical` rather than a `RoundingPolicy` split

@@ -29,7 +29,7 @@ Same section, same mass, different verdict, so it changed whether an
 estimator was asked to look.
 
 That was an open question for FSG's estimators
-(Rostov-au/fsg-tender-review#184 item 1, "questions-for-estimators.md" Q25),
+(FremantleSteel/fsg-tender-review#184 item 1, "questions-for-estimators.md" Q25),
 carried rather than settled by a `RoundingPolicy` each consumer could pick.
 David, relaying the estimating team's answer, 7 Sep 2026: read `CHS 6.4` as
 the metric 6.40 wall -- matches all 94 checkable archive lines, 0 closer to
@@ -764,7 +764,7 @@ def _split_id(section_id: str) -> tuple[str, str, float] | None:
 # Fsg-bluebeam-steel-standards had no one-decimal clause at all (whole-number
 # rounding only), which is what made `273 CHS 6.4` read `canonical` in one
 # repo and `nearest` in the other. ANSWERED 7 Sep 2026
-# (Rostov-au/fsg-tender-review#184 Q25): both resolvers converge on this
+# (FremantleSteel/fsg-tender-review#184 Q25): both resolvers converge on this
 # clause applying -- see the module docstring's "ANSWERED 7 Sep 2026" section.
 # CORRECTED 18 Sep 2026: that convergence settled the verdict but reused
 # this clause's library-mass answer for `6.4`, which is the imperial 6.35
