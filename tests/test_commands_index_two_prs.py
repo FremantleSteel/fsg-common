@@ -6,10 +6,12 @@ tests merge two branches the same way (a throwaway repo with no
 `.gitattributes` and no driver registered), in both orders, and require the
 result to merge with no conflict AND to pass `--check` with no regenerate.
 
-The controls prove the test can fail: filing the same two commands in the
-sidecar (the old way) conflicts; two commands that sort next to each other in
-one table conflict rather than merging stale; and an unfiled command on the
-merged tree still fails `--check`.
+Filing in the sidecar merges clean too, because writing the page sorts it.
+The controls prove the tests can fail: a tail append committed without
+regenerating conflicts and fails `--check`; one command filed in two groups
+conflicts; two commands that sort next to each other in one table conflict
+rather than merging stale; and an unfiled command on the merged tree still
+fails `--check`.
 """
 from __future__ import annotations
 
@@ -150,13 +152,52 @@ class TwoPullRequests(unittest.TestCase):
                 self.assertEqual(check.returncode, 0, check.stdout)
                 self.git("checkout", "-q", "main")
 
-    def test_control_filing_in_the_sidecar_still_conflicts(self):
-        # The old way: both append to the tail of `assign`. Proves this file
-        # can see a conflict, so the clean merges above are evidence.
+    def test_sidecar_tail_appends_merge_clean_once_regenerated(self):
+        # How lanes file today: append to the tail of `assign`, then
+        # regenerate. Writing the page sorts the sidecar, so the two entries
+        # land at different places and GitHub's text merge takes both.
+        # Measured failing (a conflict in commands_index.json) before the sort.
         self.branch("pr-a", {"scripts/apply_a.py": script("Apply A.")},
                     sidecar_assign={"apply_a.py": "write"})
-        self.branch("pr-b", {"scripts/report_b.py": script("Report B.")},
-                    sidecar_assign={"report_b.py": "read"})
+        self.branch("pr-b", {"scripts/check_p.py": script("Check P.")},
+                    sidecar_assign={"check_p.py": "read"})
+        for first, second in self.both_orders():
+            with self.subTest(order=f"{first} then {second}"):
+                merged = self.merge_both(first, second)
+                self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+                check = self.gen("--check")
+                self.assertEqual(check.returncode, 0, check.stdout)
+                self.assertEqual(list(self.side()["assign"]),
+                                 sorted(self.side()["assign"]))
+                self.git("checkout", "-q", "main")
+
+    def test_control_tail_append_not_regenerated_conflicts_and_fails_check(self):
+        # The same appends committed without regenerating: still the old
+        # conflict, and each branch's own --check names the order, so CI is
+        # red on the pull request before it can collide with another.
+        for name, rel, group in (("pr-a", "apply_a.py", "write"),
+                                 ("pr-b", "check_p.py", "read")):
+            self.git("checkout", "-q", "-b", name, "main")
+            (self.root / "scripts" / rel).write_text(script(f"Do {rel}."), "utf-8")
+            side = self.side()
+            side["assign"][rel] = group  # appended at the tail
+            self.write_side(side)
+            check = self.gen("--check")
+            self.assertEqual(check.returncode, 1, check.stdout)
+            self.assertIn("is not sorted", check.stdout)
+            self.commit(name)
+            self.git("checkout", "-q", "main")
+        merged = self.merge_both("pr-a", "pr-b")
+        self.assertNotEqual(merged.returncode, 0)
+        self.assertIn("commands_index.json", merged.stdout)
+
+    def test_control_same_key_filed_two_ways_still_conflicts(self):
+        # A real disagreement -- one command, two groups -- must never merge
+        # quietly into whichever line git happened to keep.
+        self.branch("pr-a", {"scripts/apply_a.py": script("Apply A.")},
+                    sidecar_assign={"apply_a.py": "write"})
+        self.branch("pr-b", {"scripts/apply_a.py": script("Apply A.")},
+                    sidecar_assign={"apply_a.py": "read"})
         merged = self.merge_both("pr-a", "pr-b")
         self.assertNotEqual(merged.returncode, 0)
         self.assertIn("commands_index.json", merged.stdout)

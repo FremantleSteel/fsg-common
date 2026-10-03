@@ -121,6 +121,23 @@ as text into exactly what regenerating gives. Two additions that sort next to
 each other in one table still conflict (the same insertion point): git says
 so, and the page is never silently stale.
 
+THE SIDECAR'S `assign` AND `aliases` ARE KEPT SORTED (crm#1798, second half)
+
+Measured 3 Oct 2026 on two scratch branches off fsg-estimating-crm main, each
+adding one script filed in the sidecar and merged with no driver and no
+attributes, as GitHub merges: a hand-appended entry at the tail of `assign`
+conflicted every time (both branches edit the same last line and its comma),
+while the same two entries at their sorted places merged clean. A sidecar
+that is not sorted has a second cost: `merge_commands_index.py` writes both
+objects sorted, so the first local merge on any branch re-sorts the whole
+object and that branch then carries reordering hunks that collide with other
+pull requests' lines (crm#1905's last update moved six keys). So writing the
+page also sorts those two objects in place -- the content is untouched, only
+the order -- and `--check` fails while either is out of order. A lane that
+appends its line at the tail and regenerates, as instructed, ends up with the
+line at its sorted place. `groups` keeps its hand order: it is the page's
+section order.
+
 POSITIVE CONTROL
 
 `--check` must be observed failing or it is not a check. `--selftest` proves it
@@ -555,6 +572,44 @@ def load_sidecar() -> dict:
     return json.loads(read_text(SIDECAR))
 
 
+SORTED_SIDECAR_KEYS = ("assign", "aliases")
+
+
+def sidecar_order_problems(side: dict) -> list[str]:
+    """One problem per sidecar object in SORTED_SIDECAR_KEYS that is out of order."""
+    problems: list[str] = []
+    for name in SORTED_SIDECAR_KEYS:
+        keys = list(side.get(name, {}))
+        for before, after in zip(keys, keys[1:], strict=False):
+            if after < before:
+                problems.append(
+                    f"`{name}` in scripts/commands_index.json is not sorted: "
+                    f"{after!r} comes after {before!r}. Regenerate to sort it; an "
+                    f"entry appended at the tail conflicts on GitHub with every "
+                    f"other pull request that appends one.")
+                break
+    return problems
+
+
+def sort_sidecar() -> bool:
+    """Rewrite the sidecar with `assign` and `aliases` sorted. True if it changed.
+
+    Same layout `merge_commands_index.py` writes (indent 2, ensure_ascii off,
+    one trailing newline, LF), so a driver merge and a regenerate agree.
+    """
+    if not SIDECAR.exists():
+        return False
+    side = json.loads(read_text(SIDECAR))
+    if not sidecar_order_problems(side):
+        return False
+    for name in SORTED_SIDECAR_KEYS:
+        if isinstance(side.get(name), dict):
+            side[name] = dict(sorted(side[name].items()))
+    SIDECAR.write_text(json.dumps(side, indent=2, ensure_ascii=False) + "\n",
+                       encoding="utf-8", newline="\n")
+    return True
+
+
 def group_of(entry: dict, assign: dict) -> str | None:
     """Which task group this command is filed under.
 
@@ -788,7 +843,8 @@ def _build() -> tuple[str, list[dict], list[str], list[str]]:
     unfiled = [c for c in commands if group_of(c, assign) not in known]
     aliases, alias_problems = merged_aliases(commands, side)
     text = render(commands, helpers, {**side, "aliases": aliases})
-    problems = filing_problems(commands, side) + alias_problems
+    problems = (sidecar_order_problems(side) + filing_problems(commands, side)
+                + alias_problems)
     return text, unfiled, ambiguous_keys(commands, assign), problems
 
 
@@ -926,6 +982,9 @@ def main(argv: list[str] | None = None, script: str | Path | None = None) -> int
     if args.selftest:
         return selftest()
 
+    resorted = False
+    if not args.check and not args.stdout:
+        resorted = sort_sidecar()
     text, unfiled, ambiguous, filing = _build()
 
     if args.stdout:
@@ -955,7 +1014,8 @@ def main(argv: list[str] | None = None, script: str | Path | None = None) -> int
         for problem in problems:
             print(f"  {problem}")
         print("\n  Regenerate:  python scripts/gen_commands_index.py")
-        print("  File a new command under `assign` in scripts/commands_index.json.")
+        print("  File a new command with a `# commands-index-group: <id>` comment in")
+        print("  its own file, or under `assign` in scripts/commands_index.json.")
         # The case that wastes an hour, because it is invisible in the diff.
         print(
             "\n  IF THIS IS RED IN CI BUT GREEN ON YOUR MACHINE, you are not\n"
@@ -979,6 +1039,8 @@ def main(argv: list[str] | None = None, script: str | Path | None = None) -> int
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(text, encoding="utf-8", newline="\n")
     print(f"wrote {OUT.relative_to(ROOT).as_posix()} ({len(text.splitlines())} lines)")
+    if resorted:
+        print(f"  sorted `assign` and `aliases` in {SIDECAR.name} (order only)")
     if unfiled:
         print(f"  {len(unfiled)} command(s) UNFILED -- --check will fail until each")
         print("  is given a task group in scripts/commands_index.json:")
