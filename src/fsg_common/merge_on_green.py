@@ -217,7 +217,11 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
         r = gh(["gh", "pr", "view", str(a.pr), "-R", a.repo, "--json", FIELDS])
         if r.rc != 0:
             return refuse(f"cannot read the PR: {r.err.strip()}")
-        pr = json.loads(r.out)
+        try:
+            pr = json.loads(r.out)
+            pr["state"], pr["isDraft"], pr["mergeable"]      # all three must be present
+        except (ValueError, KeyError, TypeError) as exc:
+            return refuse(f"gh answered but the PR could not be parsed ({exc!r})")
         if pr["state"] != "OPEN":
             return refuse(f"the PR is {pr['state']}, not OPEN")
         if pr["isDraft"]:

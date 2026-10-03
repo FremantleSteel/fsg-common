@@ -593,8 +593,19 @@ def _run(*args: str) -> list[str]:
     return [line for line in out.stdout.splitlines() if line.strip()]
 
 
+class IndexUnreadable(RuntimeError):
+    """`git diff --cached` failed: the index could not be read."""
+
+
 def staged_files() -> list[str]:
-    return _run("git", "diff", "--cached", "--name-only", "--diff-filter=ACMR")
+    """The staged paths. A git failure raises `IndexUnreadable`: an index that
+    could not be read is not an index with nothing staged."""
+    out = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+        capture_output=True, text=True, check=False)
+    if out.returncode != 0:
+        raise IndexUnreadable((out.stderr or "git failed").strip())
+    return [line for line in out.stdout.splitlines() if line.strip()]
 
 
 def range_files(rev_range: str) -> list[str]:
@@ -933,7 +944,12 @@ def run(argv: list[str] | None, config: GuardConfig, *,
         paths = tracked()
         asked_for = "--all"
     else:
-        paths = staged()
+        try:
+            paths = staged()
+        except IndexUnreadable as exc:
+            print(f"REFUSED. The staged files could not be read ({exc}), so "
+                  "this guard checked nothing.", file=sys.stderr)
+            return 2
         asked_for = None            # nothing was requested; the index decides
 
     # ZERO FILES IS NOT A CLEAN RESULT WHEN A POPULATION WAS ASKED FOR.
