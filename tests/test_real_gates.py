@@ -213,3 +213,25 @@ def test_real_staged_files_sees_a_blocked_file_and_a_clean_one(tmp_path, monkeyp
     (tmp_path / "scan.pdf").write_bytes(b"%PDF-1.4")
     _git("add", "scan.pdf", cwd=tmp_path)
     assert leak_guard.run([], CONFIG) == 1                    # real gate refuses
+
+
+# --- pr_body's `Part of #N` acceptance, through both consumers ---------------
+
+def test_gh_pr_create_accepts_part_of_and_refuses_the_nickname_form():
+    from fsg_common import gh_pr_create as g
+    calls = []
+    ok = g.main(["-R", "o/r", "--body", "Part of #12\n\nSlice."],
+                run_gh=lambda a: calls.append(a) or 0)
+    assert ok == 0 and len(calls) == 1                       # control clears
+    bad = g.main(["-R", "o/r", "--body", "Part of tr#12\n\nSlice."],
+                 run_gh=lambda a: calls.append(a) or 0)
+    assert bad == 1 and len(calls) == 1                      # real refusal, gh not called
+
+
+def test_merge_refuses_part_of_beside_a_close_that_resolved_to_nothing():
+    from fsg_common import pr_body
+    # the on-merge check: GitHub reports no closing refs
+    assert pr_body.check("Part of #12\n\nSlice.", None, "dkagi", closing_refs=[]) == []
+    assert pr_body.check("Part of #12\n\nCloses crm#5", None, "dkagi", closing_refs=[])
+    assert pr_body.check("Part of tr#12", None, "dkagi", closing_refs=[])
+    assert pr_body.check("Part of #12", None, "dkagi", closing_refs=None) == []
