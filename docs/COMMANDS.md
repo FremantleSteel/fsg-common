@@ -42,6 +42,7 @@ looking for something and the word you tried was not here.
 | is the packaged section snapshot stale | `python scripts/refresh_from_workbook.py --check` |
 | is the reading path over the word cap | `python scripts/check_reading_path_word_count.py` |
 | merge a PR only if its checks are green, then prune | `python scripts/merge_on_green.py <pr> -R FremantleSteel/fsg-common` |
+| my main clones are behind origin / a stale editable fsg_common | `python scripts/sync_main_clones.py` |
 | open a pull request with the body checked and attribution stripped | `python scripts/gh_pr_create.py -R FremantleSteel/fsg-common --body-file pr_body.md --title "..."` |
 | regenerate the section library | `python scripts/refresh_from_workbook.py` |
 | rename the github org / replace Rostov-au everywhere | `python scripts/rename_github_org.py <new-org>` |
@@ -73,6 +74,7 @@ The section library and labour rates are a generated snapshot of the workbook's 
 | Run | What it does | Defined in |
 | --- | --- | --- |
 | `python scripts/gen_commands_index.py` | Generate docs/COMMANDS.md -- the task-to-command index (thin wrapper). | `scripts/gen_commands_index.py` |
+| `python scripts/sync_main_clones.py` | Fast-forward the five FSG main clones to origin/main (report-only with --check). | `scripts/sync_main_clones.py` |
 
 ## Prep for the GitHub-org rename (crm#655 gate line 7)
 
