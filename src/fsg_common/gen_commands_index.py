@@ -85,6 +85,42 @@ A tool the sidecar does not file lands under "Unfiled" and `--check` FAILS.
 That is the anti-drift mechanism: a new subcommand cannot be added without
 someone saying which task it serves. Filing it is one line.
 
+FILING A COMMAND IN ITS OWN FILE (crm#1798, David's decision of 3 Oct 2026)
+
+A command may say which group it belongs in, and which task phrases find it,
+in its own file instead of the sidecar:
+
+    # commands-index-group: what-live-holds
+    # commands-index-task: is the scheduled check-in routine running
+    # commands-index-task: run it for one quote => python scripts/x.py --quote Q
+
+In a script, these are real `#` comments (read with `tokenize` for `.py`, so
+a docstring that only describes the syntax is never read as a filing), and
+they file the whole script. Above an `add_parser(...)` call in a `cli.py`,
+the contiguous comment lines directly above the call file that subcommand. A
+task line maps its phrase to the command's own run line unless it says
+`=> <invocation>`. The sidecar's `assign` and `aliases` keep working; a file
+filed in both places must agree, and a phrase claimed twice is a problem.
+
+Why: GitHub's merge button does a plain text merge. It runs no custom merge
+driver and, measured on 3 Oct 2026 with the merges API on scratch branches,
+does not honour `merge=union` either: two branches each inserting one line at
+the same point in docs/COMMANDS.md returned HTTP 409. Every new filing in the
+sidecar appended to the tail of a JSON object, so any two such pull requests
+conflicted there. Filed in its own file, a new command touches no line any
+other pull request touches except its own rows here.
+
+NO LINE HERE COUNTS ANYTHING
+
+The page used to open with totals ("414 scripts") and the Gaps section with a
+count. Every new command changed those lines, so every two pull requests that
+each added one conflicted on them -- and with `merge=union` they would have
+merged into a page with both counts on it. Every line is now a function of
+one command or of nothing, sorted, so two additions at different points merge
+as text into exactly what regenerating gives. Two additions that sort next to
+each other in one table still conflict (the same insertion point): git says
+so, and the page is never silently stale.
+
 POSITIVE CONTROL
 
 `--check` must be observed failing or it is not a check. `--selftest` proves it
@@ -96,12 +132,14 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
 import json
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tokenize
 from pathlib import Path
 
 # The consuming repo's own paths. They are set by `configure()` from the thin
@@ -251,6 +289,67 @@ def purpose_of(path: Path) -> str:
     return py_purpose(path) if path.suffix == ".py" else ps1_purpose(path)
 
 
+# ------------------------------------------------- filing in the command's file
+
+MARKER = re.compile(r"^#\s*commands-index-(group|task):\s*(.*?)\s*$")
+
+
+def comment_lines(path: Path) -> dict[int, str]:
+    """{line number: comment text} for every line that is only a comment.
+
+    `.py` is read with `tokenize`, so text inside a string -- a docstring that
+    explains the marker syntax -- is never a comment. `.ps1` has no tokenizer
+    here; a line whose first non-blank character is `#` is a comment.
+    """
+    text = read_text(path)
+    lines = text.splitlines()
+    found: dict[int, str] = {}
+    if path.suffix != ".py":
+        for number, line in enumerate(lines, 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                found[number] = stripped
+        return found
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        return found
+    for tok in tokens:
+        if tok.type != tokenize.COMMENT:
+            continue
+        number = tok.start[0]
+        if lines[number - 1].strip().startswith("#"):
+            found[number] = tok.string.strip()
+    return found
+
+
+def parse_markers(comments: list[str]) -> dict:
+    """{"groups": [...], "tasks": [(phrase, invocation or None), ...]}."""
+    groups: list[str] = []
+    tasks: list[tuple[str, str | None]] = []
+    for comment in comments:
+        match = MARKER.match(comment)
+        if not match:
+            continue
+        kind, value = match.groups()
+        if kind == "group":
+            groups.append(value)
+        else:
+            phrase, _, run = value.partition("=>")
+            tasks.append((" ".join(phrase.split()), run.strip() or None))
+    return {"groups": groups, "tasks": tasks}
+
+
+def block_above(comments: dict[int, str], line: int) -> list[str]:
+    """The contiguous comment-only lines directly above `line`."""
+    block: list[str] = []
+    at = line - 1
+    while at in comments:
+        block.append(comments[at])
+        at -= 1
+    return list(reversed(block))
+
+
 # ------------------------------------------------------------- AST: add_parser
 
 
@@ -270,6 +369,7 @@ def add_parser_calls(path: Path) -> list[dict]:
     except SyntaxError:
         return []
     found: list[dict] = []
+    comments = comment_lines(path)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -294,6 +394,8 @@ def add_parser_calls(path: Path) -> list[dict]:
             # spelled as in THIS file, not assumed. `--selftest` reuses it
             # to inject a genuine new subcommand rather than guessing.
             "base": ast.unparse(func.value),
+            # crm#1798: the comment block directly above the call files it.
+            "own": parse_markers(block_above(comments, node.lineno)),
         })
     found.sort(key=lambda entry: entry["line"])
     return found
@@ -403,6 +505,7 @@ def discover(root: Path, package: str | None,
                 # `grep -n 'add_parser("resolve"' <file>` is one step.
                 "source": rel,
                 "subcommands": [],
+                "own": sub["own"],
             })
 
     for rel in sorted(files):
@@ -426,6 +529,7 @@ def discover(root: Path, package: str | None,
             "purpose": purpose_of(path),
             "source": rel,
             "subcommands": [],
+            "own": parse_markers(list(comment_lines(path).values())),
         }
         if not is_runnable(path):
             helpers.append(entry)
@@ -456,9 +560,59 @@ def group_of(entry: dict, assign: dict) -> str | None:
 
     A script may be filed by its path (`scripts/tender_import/retry.py`) or by
     its bare filename (`retry.py`). Path wins, so two same-named scripts in
-    different directories can be filed apart.
+    different directories can be filed apart. Failing both, the command's own
+    `# commands-index-group:` line files it (crm#1798); where the two
+    disagree, `filing_problems` says so and `--check` fails.
     """
-    return assign.get(entry["source"]) or assign.get(entry["key"])
+    side = assign.get(entry["source"]) or assign.get(entry["key"])
+    if side:
+        return side
+    own = entry.get("own", {}).get("groups") or []
+    return own[0] if own else None
+
+
+def merged_aliases(commands: list[dict], side: dict) -> tuple[dict, list[str]]:
+    """The sidecar's aliases plus every command's own task lines, and clashes."""
+    aliases = dict(side.get("aliases", {}))
+    claimed: dict[str, str] = {}
+    problems: list[str] = []
+    for entry in commands:
+        for phrase, run in entry.get("own", {}).get("tasks", []):
+            run = run or entry["run"]
+            if not phrase:
+                problems.append(f"empty task phrase in {entry['source']}")
+                continue
+            if phrase in aliases and aliases[phrase] != run:
+                where = claimed.get(phrase, "scripts/commands_index.json")
+                problems.append(
+                    f"task phrase claimed twice: {phrase!r} -> `{aliases[phrase]}` "
+                    f"({where}) and `{run}` ({entry['source']})")
+                continue
+            aliases[phrase] = run
+            claimed.setdefault(phrase, entry["source"])
+    return aliases, problems
+
+
+def filing_problems(commands: list[dict], side: dict) -> list[str]:
+    """A file filed in two groups, filed against the sidecar, or under no group."""
+    assign = side.get("assign", {})
+    known = {g["id"] for g in side.get("groups", [])}
+    problems: list[str] = []
+    for entry in commands:
+        own = sorted(set(entry.get("own", {}).get("groups") or []))
+        sidecar = assign.get(entry["source"]) or assign.get(entry["key"])
+        label = f"`{entry['run']}` ({entry['source']})"
+        if len(own) > 1:
+            problems.append(f"{label} files itself in more than one group: {own}")
+        if own and sidecar and sidecar not in own:
+            problems.append(f"{label} is filed under {sidecar!r} in "
+                            f"scripts/commands_index.json and {own[0]!r} in its own "
+                            f"file. Keep one.")
+        gid = group_of(entry, assign)
+        if gid is not None and gid not in known:
+            problems.append(f"{label} is filed under {gid!r}, which is not a group "
+                            f"in scripts/commands_index.json")
+    return problems
 
 
 def ambiguous_keys(commands: list[dict], assign: dict) -> list[str]:
@@ -482,10 +636,6 @@ def cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip()
 
 
-def plural(count: int, one: str, many: str) -> str:
-    return f"**{count} {one if count == 1 else many}**"
-
-
 def render(commands: list[dict], helpers: list[dict], side: dict) -> str:
     groups = side.get("groups", [])
     assign = side.get("assign", {})
@@ -502,10 +652,6 @@ def render(commands: list[dict], helpers: list[dict], side: dict) -> str:
         else:
             unfiled.append(entry)
 
-    n_cli = sum(1 for c in commands if c["kind"] == "cli")
-    n_scripts = len(commands) - n_cli
-    n_sub = sum(len(c["subcommands"]) for c in commands)
-
     out: list[str] = []
     add = out.append
     add(f"# Commands -- {side.get('repo', ROOT.name)}")
@@ -521,12 +667,21 @@ def render(commands: list[dict], helpers: list[dict], side: dict) -> str:
     add("below is the tool's own docstring or `help=` string, quoted verbatim -- if one")
     add("reads badly, fix it at the source and regenerate.")
     add("")
-    add("Generated from the tracked tree: "
-        + plural(n_cli, "CLI subcommand", "CLI subcommands") + ", "
-        + plural(n_scripts, "script", "scripts") + ", "
-        + plural(n_sub, "script-level subcommand", "script-level subcommands") + ", "
-        + plural(len(helpers), "importable helper", "importable helpers")
-        + " (not commands).")
+    # crm#1798: no line on this page counts anything. A total changes with
+    # every new command, so two pull requests that each add one always
+    # collided on it, and GitHub's merge button cannot resolve that.
+    add("Generated from the tracked tree. Every row is one command and no line")
+    add("counts anything, so two pull requests that each add a command edit")
+    add("different lines and GitHub merges them cleanly.")
+    add("")
+    add("**To file a new command**, put its group (an `id` from")
+    add("`scripts/commands_index.json`) and any task phrases in the command's own")
+    add("file, as comments, rather than in the sidecar:")
+    add("")
+    add("```")
+    add("# commands-index-group: <group-id>")
+    add("# commands-index-task: <what someone is trying to do>")
+    add("```")
     add("")
     add("```")
     add("python scripts/gen_commands_index.py           # regenerate")
@@ -604,8 +759,8 @@ def render(commands: list[dict], helpers: list[dict], side: dict) -> str:
     add("## Gaps")
     add("")
     if gaps:
-        add(f"{len(gaps)} entr{'y' if len(gaps) == 1 else 'ies'} carry no docstring or")
-        add("`.SYNOPSIS`, so this index cannot say what they do. Nothing is invented in")
+        add("These carry no docstring or `.SYNOPSIS`, so this index cannot say what")
+        add("they do. Nothing is invented in")
         add("their place. One sentence at the top of each file fixes it permanently:")
         add("")
         for entry in gaps:
@@ -620,12 +775,21 @@ def render(commands: list[dict], helpers: list[dict], side: dict) -> str:
 
 
 def build() -> tuple[str, list[dict], list[str]]:
+    return _build()[:3]
+
+
+def _build() -> tuple[str, list[dict], list[str], list[str]]:
+    """(page, unfiled, ambiguous, filing problems no rendered row would show)."""
     side = load_sidecar()
     assign = side.get("assign", {})
     commands, helpers = discover(ROOT, side.get("package"),
                                  side.get("cli_prefix"))
-    unfiled = [c for c in commands if group_of(c, assign) is None]
-    return render(commands, helpers, side), unfiled, ambiguous_keys(commands, assign)
+    known = {g["id"] for g in side.get("groups", [])}
+    unfiled = [c for c in commands if group_of(c, assign) not in known]
+    aliases, alias_problems = merged_aliases(commands, side)
+    text = render(commands, helpers, {**side, "aliases": aliases})
+    problems = filing_problems(commands, side) + alias_problems
+    return text, unfiled, ambiguous_keys(commands, assign), problems
 
 
 _ROW = re.compile(r"^\| (`[^`]+`) \|")
@@ -762,7 +926,7 @@ def main(argv: list[str] | None = None, script: str | Path | None = None) -> int
     if args.selftest:
         return selftest()
 
-    text, unfiled, ambiguous = build()
+    text, unfiled, ambiguous, filing = _build()
 
     if args.stdout:
         sys.stdout.write(text)
@@ -779,6 +943,7 @@ def main(argv: list[str] | None = None, script: str | Path | None = None) -> int
         for entry in unfiled:
             problems.append(
                 f"unfiled: `{entry['run']}` ({entry['source']}) has no task group")
+        problems.extend(filing)
         for key in ambiguous:
             problems.append(
                 f"ambiguous: `{key}` names more than one command but is filed "
