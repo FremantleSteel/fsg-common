@@ -69,6 +69,7 @@ def _workbook(path: Path, *, pfc75: float = 5.92, rhs: float = 16.70):
 def data_dir(tmp_path, monkeypatch):
     d = tmp_path / "data"
     d.mkdir()
+    # not-a-gate: output location (a temp dir); the write guards run for real in the tests below
     monkeypatch.setattr(R, "DATA_DIR", str(d))
     return d
 

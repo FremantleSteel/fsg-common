@@ -25,10 +25,13 @@ class GhPrCreate(unittest.TestCase):
     def setUp(self):
         self.fake = Fake()
         self._orig = g.run_gh
+        # not-a-gate: transport (starts gh); pr_body.check runs for real and
+        # the refusal tests assert gh was never called
         g.run_gh = self.fake
         self.tmp = tempfile.TemporaryDirectory()
 
     def tearDown(self):
+        # not-a-gate: restores the transport stub above
         g.run_gh = self._orig
         self.tmp.cleanup()
 
@@ -73,6 +76,7 @@ class GhPrCreate(unittest.TestCase):
 
     def test_run_gh_can_be_injected(self):
         calls = []
+        # not-a-gate: transport, the point of this test is the injection seam
         rc = g.main(["-R", "o/r", "--body", "Closes #1", "--title", "T"],
                     run_gh=lambda a: calls.append(a) or 0)
         self.assertEqual(rc, 0)
