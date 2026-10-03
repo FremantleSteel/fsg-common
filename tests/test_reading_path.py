@@ -159,6 +159,8 @@ class ThisRepoParameterisation(unittest.TestCase):
             old = os.environ.get("FSG_COMMON_PAT")
             os.environ["FSG_COMMON_PAT"] = "tok"
             try:
+                # not-a-gate: the input list (which files exist), not a decision
+                # real-gate test: test_read_via_api_http_error_is_unavailable
                 with mock.patch.object(rp, "FILES", synthetic_files), \
                      mock.patch.object(rp, "read_via_api", side_effect=api_read):
                     code = rp.main("fsg-tender-review", [], repo_root=tmp)
@@ -230,6 +232,7 @@ class DependabotActorExemption(unittest.TestCase):
     def test_a_dependabot_run_that_did_not_touch_local_files_is_skipped(self):
         self._set(GITHUB_ACTOR="dependabot[bot]", GITHUB_EVENT_NAME="pull_request",
                    PR_BASE_SHA="irrelevant")
+        # real-gate test: test_local_file_touched_since_detects_a_real_change
         with mock.patch.object(rp, "local_file_touched_since", return_value=False):
             code = rp.main("fsg-common", [])
         self.assertEqual(code, 0)
@@ -237,12 +240,14 @@ class DependabotActorExemption(unittest.TestCase):
     def test_a_dependabot_run_that_did_touch_a_local_file_still_refuses(self):
         self._set(GITHUB_ACTOR="dependabot[bot]", GITHUB_EVENT_NAME="pull_request",
                    PR_BASE_SHA="irrelevant")
+        # real-gate test: test_local_file_touched_since_detects_a_real_change
         with mock.patch.object(rp, "local_file_touched_since", return_value=True):
             code = rp.main("fsg-common", [])
         self.assertEqual(code, 2)
 
     def test_a_dependabot_run_with_an_unmeasurable_diff_still_refuses(self):
         self._set(GITHUB_ACTOR="dependabot[bot]", GITHUB_EVENT_NAME="pull_request")
+        # real-gate test: test_local_file_touched_since_with_no_base_sha_is_unmeasurable
         with mock.patch.object(rp, "local_file_touched_since", return_value=None):
             code = rp.main("fsg-common", [])
         self.assertEqual(code, 2)

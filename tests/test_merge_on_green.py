@@ -27,6 +27,8 @@ def pr(**kw):
     return d
 
 
+# not-a-gate: transport (gh and git runners); the gate logic runs for real.
+# The unreadable-answer refusals are in test_real_gates.py
 class Harness:
     def __init__(self, views, dirty=False, wt=True, cur="main", main_dirty=False):
         self.views, self.dirty, self.wt = list(views), dirty, wt

@@ -473,6 +473,7 @@ def test_a_git_show_environment_failure_is_worded_distinctly_from_a_gap(
         sources = leak_guard._range_path_sources(
             "4b825dc642cb6eb9a060e54bf8d69288fbee4904..HEAD")
         assert sources.get("leaky.docx") == commit1, sources
+        # real-gate test: test_a_genuine_gap_does_not_pick_up_the_environment_wording
         monkeypatch.setattr(leak_guard.subprocess, "run", fake_run)
         problems = leak_guard.check(["leaky.docx"], CONFIG,
                                     path_sources=sources)
@@ -526,6 +527,7 @@ def test_a_genuine_gap_does_not_pick_up_the_environment_wording(
 # --- run(): population selection and the zero-files refusal ------------------
 
 def test_no_staged_files_is_a_pass_not_a_refusal(monkeypatch, capsys):
+    # real-gate test: test_real_staged_files_sees_a_blocked_file_and_a_clean_one
     monkeypatch.setattr(leak_guard, "staged_files", lambda: [])
     rc = leak_guard.run([], CONFIG)
     assert rc == 0
