@@ -71,7 +71,7 @@ and were both wrong.
 `fsg-tender-review` labelled it `canonical`, the Bluebeam toolkit labelled it
 `nearest`. Same section, same mass, different verdict, and the verdict decided
 whether an estimator was asked to look at the line. That was an open question
-for FSG's estimators, item 1 of Rostov-au/fsg-tender-review#184, carried by a
+for FSG's estimators, item 1 of FremantleSteel/fsg-tender-review#184, carried by a
 `RoundingPolicy` parameter (`_policy.py`) rather than picked.
 
 **Answered in two steps.** 7 Sep 2026: both resolvers converged on

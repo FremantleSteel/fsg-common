@@ -22,7 +22,7 @@ checkout it does not control.
 Both repos add one line to `requirements.txt`:
 
 ```
-fsg-common @ git+https://github.com/Rostov-au/fsg-common@v0.1.0
+fsg-common @ git+https://github.com/FremantleSteel/fsg-common@v0.1.0
 ```
 
 Pin a tag, not a branch. A resolver that changes under a consumer without a
@@ -38,7 +38,7 @@ import from it by relative path.
 """Shim. The resolver lives in `fsg_common.sections`; this re-exports it.
 
 The toolkit keeps its historical rounding verdict until the estimators
-answer Rostov-au/fsg-tender-review#184 item 1 -- see fsg_common's
+answer FremantleSteel/fsg-tender-review#184 item 1 -- see fsg_common's
 `sections/_policy.py`. That is why `library()` here is not the package
 default.
 """

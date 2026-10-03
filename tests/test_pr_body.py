@@ -18,8 +18,8 @@ SHORT = "Closes #12\n\nOne sentence of what changed.\n\nTests: 7 before, 9 after
 class TheClosingKeyword(unittest.TestCase):
     def test_the_plain_forms_pass(self):
         for body in ("Closes #12", "closes #12", "Fixes #3", "Resolves #4", "Closed #5",
-                     "Fixed: #6", "fix #7", "Resolves Rostov-au/fsg-estimating-crm#12",
-                     "Closes https://github.com/Rostov-au/fsg-estimating-crm/issues/12"):
+                     "Fixed: #6", "fix #7", "Resolves FremantleSteel/fsg-estimating-crm#12",
+                     "Closes https://github.com/FremantleSteel/fsg-estimating-crm/issues/12"):
             self.assertEqual(cpb.check(body, None, "dkagi"), [], body)
 
     def test_a_reference_without_a_keyword_fails(self):
@@ -50,10 +50,10 @@ class TheClosingKeyword(unittest.TestCase):
         of one is a keyword GitHub ignores -- the same false-green the
         `crm#N` shorthand gives, and squarely what crm#960 is about. The
         positive control is the second loop: it must go red."""
-        for body in ("Closes https://github.com/Rostov-au/fsg-estimating-crm/issues/12",
+        for body in ("Closes https://github.com/FremantleSteel/fsg-estimating-crm/issues/12",
                      "Resolves https://github.com/owner/repo/issues/3"):
             self.assertEqual(cpb.check(body, None, "dkagi"), [], body)
-        for body in ("Closes https://github.com/Rostov-au/fsg-estimating-crm/pull/12",
+        for body in ("Closes https://github.com/FremantleSteel/fsg-estimating-crm/pull/12",
                      "Resolves https://github.com/owner/repo/pull/3"):
             problems = cpb.check(body, None, "dkagi")
             self.assertEqual(len(problems), 1, body)
