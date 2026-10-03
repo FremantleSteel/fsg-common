@@ -83,6 +83,26 @@ CLOSING = re.compile(
     r"|(?:[\w.-]+/[\w.-]+)?#\d+)",
     re.IGNORECASE,
 )
+# crm#1965: `Part of #N` names the issue a PR belongs to without closing it.
+# Lane rule 5 allows it, and while this check refused it every lane wrote a
+# false `No issue:` line to get past. Same three reference shapes as CLOSING,
+# so `Part of tr#12` (no slash) is still plain text and still refused.
+PART_OF = re.compile(
+    r"\bpart of\b\s*:?\s*"
+    r"(?:https://github\.com/[\w.-]+/[\w.-]+/issues/\d+"
+    r"|(?:[\w.-]+/[\w.-]+)?#\d+)",
+    re.IGNORECASE,
+)
+
+# Any attempt to close something, including the forms GitHub ignores
+# (`Closes crm#5`, `Fixes .../pull/3`). Only used to stop `Part of` from
+# excusing a close that resolved to nothing on merge.
+CLOSE_CLAIM = re.compile(
+    r"\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\b\s*:?\s*"
+    r"\S*(?:#\d+|/(?:issues|pull)/\d+)",
+    re.IGNORECASE,
+)
+
 # The start of a `No issue:` line, tolerant of how people actually write it:
 # a markdown heading (`## No issue:`), a blockquote (`> No issue:`), a list
 # marker (`- No issue:`) or bold (`**No issue:**`) all lead the same
@@ -157,8 +177,14 @@ def check(body: str | None, first_comment: str | None, author: str | None,
         return ["the PR body is empty: nothing to close an issue with, nothing to read"]
     problems: list[str] = []
     stated_no_issue = states_no_issue(body)
+    claims_close = bool(CLOSE_CLAIM.search(body))
+    # `Part of #N` names its issue. Before a merge that is enough. On merge it
+    # also excuses an empty closingIssuesReferences, but only when the body
+    # claims no close at all: a `Closes crm#5` that resolved to nothing is
+    # still the false-green the on-merge check exists to catch.
+    part_of = bool(PART_OF.search(body))
     if closing_refs is None:
-        if not CLOSING.search(body) and not stated_no_issue:
+        if not CLOSING.search(body) and not part_of and not stated_no_issue:
             problems.append(
                 "no closing keyword in the body -- GitHub honours exactly three forms: "
                 "`Closes #N` (this repo), `Fixes owner/repo#N` (another repo), or "
@@ -166,11 +192,13 @@ def check(body: str | None, first_comment: str | None, author: str | None,
                 "shorthand such as `crm#447` or `tools#65` is NOT one of them: there is "
                 "no slash, so GitHub reads it as plain text and closes nothing. Nor is a "
                 "`.../pull/N` URL: that links a pull request, not an issue, so it closes "
-                "nothing either. If this PR genuinely closes nothing, say so with a "
+                "nothing either. If this PR is one step of a larger issue, say "
+                "`Part of #N` (same three reference forms). If it genuinely closes "
+                "nothing, say so with a "
                 "`No issue:` line carrying the reason -- on the same line "
                 "(`No issue: dependency bump only`), or as a `## No issue:` heading with "
                 "the reason in the line right below it.")
-    elif not closing_refs and not stated_no_issue:
+    elif not closing_refs and not stated_no_issue and not (part_of and not claims_close):
         problems.append(
             "GitHub will close no issue on merge: `closingIssuesReferences` is empty. "
             "That is GitHub's own answer, not a reading of the body, so it is final. A "

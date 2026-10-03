@@ -104,6 +104,35 @@ class TheClosingKeyword(unittest.TestCase):
             self.assertIn("empty", problems[0])
 
 
+class PartOf(unittest.TestCase):
+    """crm#1965: lane rule 5 allows `Part of #N`; the gate now agrees."""
+
+    def test_part_of_an_issue_passes_before_merge(self):
+        for body in ("Part of #12\n\nSlice 2.", "part of: #12",
+                     "Part of FremantleSteel/fsg-estimating-crm#1798",
+                     "Part of https://github.com/FremantleSteel/fsg-common/issues/7"):
+            self.assertEqual(cpb.check(body, None, "dkagi"), [], body)
+
+    def test_control_part_of_with_no_real_reference_still_fails(self):
+        for body in ("Part of tr#12.", "Part of the 1798 work.", "Part of #"):
+            problems = cpb.check(body, None, "dkagi")
+            self.assertEqual(len(problems), 1, body)
+            self.assertIn("no closing keyword", problems[0])
+            self.assertIn("Part of #N", problems[0])
+
+    def test_on_merge_part_of_excuses_an_empty_close_list(self):
+        self.assertEqual(cpb.check("Part of #12\n\nSlice 2.", None, "dkagi",
+                                   closing_refs=[]), [])
+
+    def test_on_merge_a_failed_close_is_not_excused_by_part_of(self):
+        """`Closes crm#5` resolved to nothing; a `Part of` line beside it must
+        not turn GitHub's empty answer green -- the closed-on-merge check
+        stays its own check."""
+        problems = cpb.check("Closes crm#5\nPart of #12", None, "dkagi", closing_refs=[])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("closingIssuesReferences", problems[0])
+
+
 class TheWordLimit(unittest.TestCase):
     def _body_of(self, n: int) -> str:
         return "Closes #1 " + " ".join(["w"] * (n - 2))
