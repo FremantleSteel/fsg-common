@@ -11,7 +11,18 @@ Look here when you know the task and not the tool's name. Every description
 below is the tool's own docstring or `help=` string, quoted verbatim -- if one
 reads badly, fix it at the source and regenerate.
 
-Generated from the tracked tree: **0 CLI subcommands**, **9 scripts**, **0 script-level subcommands**, **0 importable helpers** (not commands).
+Generated from the tracked tree. Every row is one command and no line
+counts anything, so two pull requests that each add a command edit
+different lines and GitHub merges them cleanly.
+
+**To file a new command**, put its group (an `id` from
+`scripts/commands_index.json`) and any task phrases in the command's own
+file, as comments, rather than in the sidecar:
+
+```
+# commands-index-group: <group-id>
+# commands-index-task: <what someone is trying to do>
+```
 
 ```
 python scripts/gen_commands_index.py           # regenerate
