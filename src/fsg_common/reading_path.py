@@ -270,7 +270,14 @@ def measure(read, files: tuple[tuple[str, str], ...] = FILES) -> dict[tuple[str,
     without a network or a credential."""
     counts: dict[tuple[str, str], int] = {}
     for repo, path in files:
-        counts[(repo, path)] = word_count(read(repo, path))
+        n = word_count(read(repo, path))
+        if n == 0:
+            # An empty 200 (or an empty file) is not a file of zero words: the
+            # total would shrink silently and the cap would pass on a read
+            # that never happened.
+            raise Unavailable(f"{repo}/{path}: read back empty (0 words); "
+                              "that is an unreadable file, not a count of zero")
+        counts[(repo, path)] = n
     return counts
 
 
