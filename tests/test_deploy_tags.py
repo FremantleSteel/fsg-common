@@ -37,6 +37,10 @@ class Repo(unittest.TestCase):
         self.root = self.tmp / "repo"
         self.root.mkdir()
         git(self.root, "init", "-q", "-b", "main")
+        # dt.create() runs `git tag -a` itself, so the throwaway repo needs its
+        # own identity (CI has no global one).
+        git(self.root, "config", "user.name", "t")
+        git(self.root, "config", "user.email", "t@example.invalid")
         git(self.root, "remote", "add", "origin", str(self.remote))
         self.commit("v1")
         # not-a-gate: a path (points the module at the throwaway repo)
