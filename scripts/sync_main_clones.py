@@ -9,9 +9,6 @@ run uses the code under test.
 """
 from __future__ import annotations
 
-# commands-index-group: repo-hygiene
-# commands-index-task: my main clones are behind origin / a stale editable fsg_common
-
 import os
 import sys
 
@@ -19,6 +16,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from fsg_common.sync_main_clones import *  # noqa: E402,F401,F403
 from fsg_common.sync_main_clones import main  # noqa: E402
+
+# commands-index-group: repo-hygiene
+# commands-index-task: my main clones are behind origin / a stale editable fsg_common
 
 if __name__ == "__main__":
     sys.exit(main(script=__file__))
