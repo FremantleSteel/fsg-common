@@ -45,7 +45,7 @@ jobs:
       - name: ruff check
         run: ruff check .
 
-      - name: The compulsory reading path stays under 30,500 words
+      - name: The compulsory reading path stays under 7,500 words
         # crm#557/crm#635, and the estate-wide rollout of 19 Sep 2026: a doc
         # edit in ANY of the five repos can push the shared total over the
         # cap, and until now only fsg-estimating-crm's own CI re-measured

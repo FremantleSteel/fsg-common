@@ -75,6 +75,15 @@ class Verdict(unittest.TestCase):
         self.assertEqual(code_over, 1)
         self.assertTrue(any("OVER LIMIT by 1 word" in line for line in lines_over))
 
+    def test_the_cap_is_7500_exactly_with_a_control_either_side(self):
+        """crm#1798: 7,500 passes, 7,501 fails. Pins the number itself, so
+        the other tests (all relative to WORD_LIMIT) cannot hide a drift."""
+        self.assertEqual(rp.WORD_LIMIT, 7_500)
+        code_at, _ = rp.verdict(self._counts(7_500))
+        code_over, _ = rp.verdict(self._counts(7_501))
+        self.assertEqual(code_at, 0)
+        self.assertEqual(code_over, 1)
+
     def test_a_synthetic_push_over_the_cap_fails(self):
         """The fixture proving the gate catches growth, not just runs under
         a limit it happens to already be under."""

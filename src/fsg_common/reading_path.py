@@ -1,4 +1,4 @@
-"""The compulsory reading path stays under 30,500 words -- crm#557, crm#635.
+"""The compulsory reading path stays under 7,500 words -- crm#557, crm#635, crm#1798.
 
 ## What this is, and why it lives here rather than in five repos
 
@@ -111,8 +111,11 @@ import urllib.request
 OWNER = "FremantleSteel"
 
 # 30,000 originally (David, crm#557, 11 Sep 2026). Raised to 30,500 (David,
-# crm#635, 18 Sep 2026), verbatim: "Raise the cap to 30,500."
-WORD_LIMIT = 30_500
+# crm#635, 18 Sep 2026), verbatim: "Raise the cap to 30,500." Cut to 7,500
+# (David, crm#1798, Desk answer crm1798-cap = A, 4 Oct 2026), verbatim: "9,500
+# now; a fourth trim gets tender-review and crm under 1,500 each; then 7,500."
+# Measured 6,794 words across the five files when set.
+WORD_LIMIT = 7_500
 
 # The compulsory reading path, per David's decision on crm#557 (11 Sep
 # 2026), narrowed by crm#1009 (25 Sep 2026): `fsg-tender-review/docs/
