@@ -85,13 +85,15 @@ from __future__ import annotations
 import functools
 import re
 from collections.abc import Iterable
+from typing import NamedTuple
 
 from ._section import Section
 
 __all__ = [
-    "SectionLibrary", "ambiguous_candidates", "canonical_candidates",
-    "cold_formed", "library", "loose_key", "mass_of", "resolve",
-    "shape_modifier", "shape_modifier_candidates", "vendor_cold_formed",
+    "FamilyFirstReading", "SectionLibrary", "ambiguous_candidates",
+    "canonical_candidates", "cold_formed", "family_first_reading", "library",
+    "loose_key", "mass_of", "resolve", "shape_modifier",
+    "shape_modifier_candidates", "split_member_tag", "vendor_cold_formed",
     "COLD_FORMED", "COLD_FORMED_VENDORS", "HEAD_TOLERANCE", "NEAREST_MARGIN",
     "NEAREST_TOLERANCE",
 ]
@@ -868,6 +870,92 @@ def _chs_metric_wall(candidate: str, by_key: dict[str, Section]) -> Section | No
     )
 
 
+# fsg-common#62, 10 Oct 2026: two ways a model's type name writes a section
+# the resolver already carries. Both were found by fsg-estimating-tools#518's
+# 13-job test of model exports (9 Oct 2026). Both are PARSING -- the same
+# section written in a different order or with a label in front -- and
+# neither is a substitution: `substitutions.json` stays the estimators' list.
+#
+# 1. Family first, then depth x width x mass: `UB150x75x14` is `150UB14`.
+#    The library files I-sections by depth and mass and carries no flange
+#    width, so the width is read and NOT checked; the depth must equal a
+#    library head exactly (no `HEAD_TOLERANCE`, so a British `UB406x178x60`
+#    or `UC152x152x23` is refused rather than read as an Australian section),
+#    and the stated mass must equal one row's `mass_kg_per_m` to the
+#    library's own rounding (`_family_first_mass_matches`). No row, or two,
+#    is `unresolved` with a reason (`family_first_reading`). Never through
+#    `nearest()`: that reads the WIDTH as the mass, and `WB1000x300x215`
+#    came back `1000WB296` (`nearest`, 38% heavy) before this. The older
+#    depth x mass x length reading (`UB150x14x6000` is 150UB14) is kept
+#    where it lands on a row at `canonical` or better, so no earlier answer
+#    is lost; when the two readings name different rows, neither is taken.
+#    Only the four families whose library id is depth + mass; PFC, TFB and
+#    TFC already resolve by depth (and width) and are not touched.
+_FAMILY_FIRST = re.compile(
+    r"^(UB|UC|WB|WC)\s*(\d+(?:\.\d+)?)\s*[X*]\s*(\d+(?:\.\d+)?)"
+    r"\s*[X*]\s*(\d+(?:\.\d+)?)\s*$")
+
+# 2. A designer's member tag, then ` - `, then the section: `G1 - C10015`
+#    (a girt), `P1 - Z15015`. Spaces on both sides of the hyphen, so a
+#    vendor prefix (`LYS-C10015`) or a hyphen inside a size is never cut.
+#    The tag has the shape `_LEADING_MARK` already treats as a mark. It is
+#    stripped only when the tag does not itself read as a section
+#    (`PL10 - 200` keeps both) and what follows resolves on its own;
+#    otherwise the whole text goes down the ordinary path, as before. One
+#    tag only: `G1 - B2 - 150UB14` is not a form anyone has measured.
+#
+#    This reaches the bare-Lysaght alias (`G1 - C10015` is `LYS-C10015`),
+#    which a SPACE-separated mark still does not (`P7 Z20015` stays
+#    `cold-formed`, raw-only per the alias's own note): ` - ` is an explicit
+#    delimiter the space form lacks, and #62 measured it in model exports.
+_MEMBER_TAG = re.compile(r"^\s*([A-Z]{1,3}\d{1,3}[A-Z]?)\s+-\s+(\S.*?)\s*$")
+# The same mark, separated by ` - ` or by whitespace, in front of a
+# family-first triple. Used only to find a triple behind a mark.
+_MARK_PREFIX = re.compile(r"^\s*([A-Z]{1,3}\d{1,3}[A-Z]?)(?:\s+-\s+|\s+)(\S.*?)\s*$")
+
+
+def split_member_tag(raw: str) -> tuple[str, str] | None:
+    """`('G1', 'C10015')` for `G1 - C10015`; None if the text is not a single
+    tag, ` - `, and something after it.
+
+    Shape only. Whether the tag may be dropped is the library's call
+    (`SectionLibrary.resolve`), because that needs to know whether the tag
+    itself reads as a section.
+    """
+    m = _MEMBER_TAG.match(str(raw or "").upper())
+    if not m:
+        return None
+    tag, rest = m.group(1), m.group(2)
+    if _MEMBER_TAG.match(rest):
+        return None  # two tags; refuse rather than guess which is the mark
+    return tag, rest
+
+
+def _family_first_mass_matches(stated: float, mass: float) -> bool:
+    """The library's own rounding, applied to `mass_kg_per_m`, never the id.
+
+    A drawing writes the standard's mass (25.7) or FSG's whole-kg/m figure
+    (26); both are the 250UB26 row at 25.7. A decimal that is not the
+    library's (25.5) is refused: the width cannot be checked, so a mass that
+    is only near a row is two unverified numbers, not a reading.
+    """
+    if abs(stated - mass) <= ROUNDING_TOLERANCE:
+        return True
+    return stated == int(stated) and int(stated) == int(mass + 0.5)
+
+
+class FamilyFirstReading(NamedTuple):
+    """What `UB150x75x14` was read as, and why it did or did not resolve."""
+
+    family: str
+    depth: str
+    width: str
+    mass: str
+    tag: str | None
+    section: Section | None
+    reason: str
+
+
 class SectionLibrary:
     """Wraps whatever `Iterable[Section]` it's given -- `classification.Section`
     here, duck-typed against the same six fields `fsg_mto.sections.Section`
@@ -940,6 +1028,99 @@ class SectionLibrary:
                 return None  # sits between two real sections; do not guess
         return ranked[0][1]
 
+    def _from_candidates(self, candidates: list[str]) -> tuple[Section | None, str]:
+        """The first candidate that lands on a row: exact keys first, then
+        `nearest()`. `(None, "unresolved")` when none does."""
+        for candidate in candidates:
+            metric = _chs_metric_wall(candidate, self._by_key)
+            if metric is not None:
+                return metric, "canonical"
+            hit = self._by_key.get(loose_key(candidate))
+            if hit is not None:
+                return hit, "canonical"
+        for candidate in candidates:
+            hit = self.nearest(candidate)
+            if hit is not None:
+                return hit, ("canonical"
+                             if _is_rounding(candidate, hit)
+                             else "nearest")
+        return None, "unresolved"
+
+    def _reads_as_section(self, tag: str) -> bool:
+        """True when a would-be member tag is itself section notation
+        (`PL10`, `UB1`, `C10015`): dropping it could drop the section."""
+        text = str(tag).upper()
+        if any(re.search(pattern, text) for pattern, _ in _TYPE_WORDS):
+            return True
+        if cold_formed(text) is not None or vendor_cold_formed(text) is not None:
+            return True
+        return self.resolve(text)[1] != "unresolved"
+
+    def family_first(self, raw: str) -> FamilyFirstReading | None:
+        """`UB150x75x14` read as depth 150, width 75, mass 14, and the
+        library rows that mass matches. None when the text is not that form.
+
+        `section` is the reading, or None for a refusal; `reason` says which
+        and names the rows. See `_FAMILY_FIRST`.
+        """
+        text = str(raw or "").upper().replace("×", "X").strip()
+        tag = None
+        m = _FAMILY_FIRST.match(text)
+        if m is None:
+            marked = _MARK_PREFIX.match(text)
+            if marked is not None:
+                m = _FAMILY_FIRST.match(marked.group(2))
+                tag = marked.group(1)
+        if m is None:
+            return None
+        family, depth, width, mass = (m.group(1), _trim(m.group(2)),
+                                      _trim(m.group(3)), _trim(m.group(4)))
+        read = f"{family} depth {depth}, width {width}, mass {mass} kg/m"
+
+        def reading(section: Section | None, reason: str) -> FamilyFirstReading:
+            return FamilyFirstReading(family, depth, width, mass, tag, section,
+                                      f"{read}: {reason}")
+
+        if tag is not None and self._reads_as_section(tag):
+            return reading(None, f"the leading mark {tag} itself reads as a "
+                               "section; two sections named, not guessed")
+        # The same three numbers read the way the resolver read them before
+        # #62: depth x mass x length (`UB150x14x6000` is 150UB14, 6 m). Kept
+        # where it lands on a row at `canonical` or better, so no answer
+        # given before is lost; `nearest` is dropped, because that is the
+        # reading that took `WB1000x300x215`'s width for its mass.
+        before, before_how = self._from_candidates(canonical_candidates(text))
+        if before_how not in ("exact", "canonical"):
+            before = None
+        rows = [sec for _size, sec in self._by_family.get((depth, family), [])
+                if sec.mass_kg_per_m is not None]
+        matches = [sec for sec in rows
+                   if _family_first_mass_matches(float(mass), sec.mass_kg_per_m)]
+        if len(matches) > 1:
+            names = ", ".join(sec.section_id for sec in matches)
+            return reading(None, f"the mass matches {len(matches)} rows "
+                                 f"({names}); not guessed")
+        if matches:
+            only = matches[0]
+            if before is not None and before is not only:
+                return reading(None, f"read as depth x width x mass it is "
+                                     f"{only.section_id}, read as depth x mass x "
+                                     f"length it is {before.section_id}; not guessed")
+            return reading(only, f"{only.section_id} at {only.mass_kg_per_m:g} "
+                                 f"kg/m; width {width} not checked, 90_Lists "
+                                 "carries no flange width")
+        if before is not None:
+            return reading(before, f"no {depth}{family} row has mass {mass}; read "
+                                   f"as depth x mass x length, {before.section_id}, "
+                                   "as before #62")
+        if not rows:
+            return reading(None, f"the library has no {depth}{family} row "
+                                 "(depth must equal the library's own)")
+        listed = ", ".join(f"{sec.section_id} {sec.mass_kg_per_m:g}"
+                           for sec in sorted(rows, key=lambda s: s.mass_kg_per_m))
+        return reading(None, f"no {depth}{family} row has that mass "
+                             f"(library kg/m: {listed})")
+
     def resolve(self, raw: str) -> tuple[Section | None, str]:
         """Resolve drawing text to a library Section.
 
@@ -1000,20 +1181,26 @@ class SectionLibrary:
         direct = self.get(raw)
         if direct is not None:
             return direct, "exact"
+        # fsg-common#62: `G1 - C10015`. See `_MEMBER_TAG`.
+        # The tag is dropped, so the drawing did not write the library's id:
+        # an `exact` on what follows is `canonical` here, as the space-marked
+        # `C1 100 x 100 x 5 SHS` has always been.
+        tagged = split_member_tag(raw)
+        if tagged is not None and not self._reads_as_section(tagged[0]):
+            hit, how = self.resolve(tagged[1])
+            if how != "unresolved":
+                return hit, ("canonical" if how == "exact" else how)
+        # fsg-common#62: `UB150x75x14`. Answers here either way, so the form
+        # never reaches `nearest()`, which reads its width as the mass.
+        family_first = self.family_first(raw)
+        if family_first is not None:
+            if family_first.section is not None:
+                return family_first.section, "canonical"
+            return None, "unresolved"
         candidates = canonical_candidates(raw)
-        for candidate in candidates:
-            metric = _chs_metric_wall(candidate, self._by_key)
-            if metric is not None:
-                return metric, "canonical"
-            hit = self._by_key.get(loose_key(candidate))
-            if hit is not None:
-                return hit, "canonical"
-        for candidate in candidates:
-            hit = self.nearest(candidate)
-            if hit is not None:
-                return hit, ("canonical"
-                             if _is_rounding(candidate, hit)
-                             else "nearest")
+        hit, how = self._from_candidates(candidates)
+        if hit is not None:
+            return hit, how
         # fsg-tender-review#184 Q27, ANSWERED 7 Sep 2026: a VENDOR-PREFIXED
         # cold-formed code (`STR-C20024`, `LYS-Z20015`) whose own exact row
         # is not in 90_Lists tries the OTHER vendor's row at the same
@@ -1138,6 +1325,13 @@ def resolve(raw: str) -> tuple[Section | None, str]:
     caller needing to hold onto a `SectionLibrary` itself.
     """
     return library().resolve(raw)
+
+
+def family_first_reading(raw: str) -> FamilyFirstReading | None:
+    """For a family-first name (`UB150x75x14`), what it was read as and why
+    it did or did not resolve -- the reason an `unresolved` carries. None
+    when the text is not that form."""
+    return library().family_first(raw)
 
 
 def ambiguous_candidates(raw: str) -> list[Section]:
