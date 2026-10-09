@@ -19,6 +19,9 @@ working.
   to nothing because the drawing never chose.
 - `shape_modifier_candidates` -- for a `shape-modifier` refusal, the plain
   section that was ruled out. The anchor, never the answer.
+- `family_first_reading` -- what `UB150x75x14` was read as, and the reason
+  it resolved or was refused (fsg-common#62). `split_member_tag` -- the
+  `G1` / `C10015` split of `G1 - C10015`, shape only.
 - `substitutions` -- an estimator's recorded decision to price a size the
   library lacks as a different real one. Read by the resolver; never a
   resolver rule.
@@ -53,17 +56,20 @@ from ._resolver import (  # noqa: F401 - see the note below
     HEAD_TOLERANCE,
     NEAREST_MARGIN,
     NEAREST_TOLERANCE,
+    FamilyFirstReading,
     SectionLibrary,
     _looks_like_mark,
     ambiguous_candidates,
     canonical_candidates,
     cold_formed,
+    family_first_reading,
     library,
     loose_key,
     mass_of,
     resolve,
     shape_modifier,
     shape_modifier_candidates,
+    split_member_tag,
     vendor_cold_formed,
 )
 from ._section import Section
@@ -93,10 +99,11 @@ from ._snapshot import (
 )
 
 __all__ = [
-    "Section", "SectionLibrary",
-    "ambiguous_candidates", "canonical_candidates", "cold_formed", "library",
-    "loose_key", "mass_of", "resolve", "shape_modifier",
-    "shape_modifier_candidates", "substitutions", "vendor_cold_formed",
+    "FamilyFirstReading", "Section", "SectionLibrary",
+    "ambiguous_candidates", "canonical_candidates", "cold_formed",
+    "family_first_reading", "library", "loose_key", "mass_of", "resolve",
+    "shape_modifier", "shape_modifier_candidates", "split_member_tag",
+    "substitutions", "vendor_cold_formed",
     "COLD_FORMED", "COLD_FORMED_VENDORS", "HEAD_TOLERANCE", "NEAREST_MARGIN",
     "NEAREST_TOLERANCE",
     "SHEET", "FIRST_ROW", "LAST_ROW", "COL_SECTION_ID", "COL_CATEGORY",
