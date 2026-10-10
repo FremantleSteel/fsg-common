@@ -22,6 +22,8 @@ working.
 - `family_first_reading` -- what `UB150x75x14` was read as, and the reason
   it resolved or was refused (fsg-common#62). `split_member_tag` -- the
   `G1` / `C10015` split of `G1 - C10015`, shape only.
+- `mark_only_reason` -- why `B2 - BASEPLATE` is unresolved: the only number
+  is the member mark's, and a mark is not a size (fsg-common#64).
 - `substitutions` -- an estimator's recorded decision to price a size the
   library lacks as a different real one. Read by the resolver; never a
   resolver rule.
@@ -65,6 +67,7 @@ from ._resolver import (  # noqa: F401 - see the note below
     family_first_reading,
     library,
     loose_key,
+    mark_only_reason,
     mass_of,
     resolve,
     shape_modifier,
@@ -101,7 +104,8 @@ from ._snapshot import (
 __all__ = [
     "FamilyFirstReading", "Section", "SectionLibrary",
     "ambiguous_candidates", "canonical_candidates", "cold_formed",
-    "family_first_reading", "library", "loose_key", "mass_of", "resolve",
+    "family_first_reading", "library", "loose_key", "mark_only_reason",
+    "mass_of", "resolve",
     "shape_modifier", "shape_modifier_candidates", "split_member_tag",
     "substitutions", "vendor_cold_formed",
     "COLD_FORMED", "COLD_FORMED_VENDORS", "HEAD_TOLERANCE", "NEAREST_MARGIN",
