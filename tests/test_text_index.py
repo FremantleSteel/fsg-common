@@ -34,8 +34,8 @@ def add(idx, text, opp="OPP-1", det="No NDA", flag=False, ref=None, source="a.md
                    source_hash="sha256:00", approval_reference=ref)
 
 
-def sources(hits):
-    return sorted(h.source for h in hits)
+def sources(result):
+    return sorted(h.source for h in result.hits)
 
 
 # --- an absent level refuses; a present one inserts -------------------------
@@ -58,7 +58,7 @@ def test_absent_opportunity_refuses_unless_marked_not_a_tender(idx):
         add(idx, "handover note", opp=None)
     add(idx, "handover note", opp=NOT_A_TENDER, source="handover.md")
     hits = idx.search("handover", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER)
-    assert [(h.source, h.opportunity_id) for h in hits] == [("handover.md", None)]
+    assert [(h.source, h.opportunity_id) for h in hits.hits] == [("handover.md", None)]
 
 
 def test_flag_must_be_a_bool_or_none(idx):
@@ -83,8 +83,59 @@ def test_fts_query_matches_words_and_misses_others(idx):
     hits = idx.search("baseplate AND grout", lane=HOSTED_AI,
                       customer_type=NON_DEFENCE_CUSTOMER)
     assert sources(hits) == ["h1.md"]
-    assert "[baseplate]" in hits[0].snippet
-    assert idx.search("purlin", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER) == []
+    assert "[baseplate]" in hits.hits[0].snippet
+    assert idx.search("purlin", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER
+                      ) == ti.SearchResult((), withheld=0, truncated=False)
+
+
+# --- the limit and what a search says it left out ------------------------------
+
+@pytest.mark.parametrize("limit", [0, -1, 1.5, "3", True])
+def test_limit_must_be_positive_whole_or_none(idx, limit):
+    add(idx, "cleat")
+    with pytest.raises(IndexRefused, match="limit"):
+        idx.search("cleat", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER,
+                   limit=limit)
+
+
+def test_limit_none_returns_every_permitted_match(idx):
+    for i in range(60):
+        add(idx, f"cleat {i}", opp=f"O-{i}")
+    result = idx.search("cleat", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER,
+                        limit=None)
+    assert (len(result.hits), result.truncated) == (60, False)
+    capped = idx.search("cleat", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER)
+    assert (len(capped.hits), capped.truncated) == (50, True)
+
+
+def test_filter_runs_before_the_limit(idx):
+    # Ten restricted rows rank above the one ordinary row; a limit applied
+    # before the filter would return nothing to a hosted search.
+    for i in range(10):
+        add(idx, "gusset gusset gusset", opp=f"O-r{i}", det="Restricted",
+            source=f"restricted-{i}")
+    add(idx, "gusset plate with a long run of other words in the note",
+        opp="O-ord", source="ordinary")
+    assert levels_rank_restricted_first(idx)
+    result = idx.search("gusset", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER,
+                        limit=1)
+    assert [h.source for h in result.hits] == ["ordinary"]
+    assert (result.withheld, result.truncated) == (10, False)
+
+
+def levels_rank_restricted_first(idx):
+    first = idx.db.execute("SELECT rowid FROM rows_fts WHERE rows_fts MATCH 'gusset'"
+                           " ORDER BY rank LIMIT 1").fetchone()[0]
+    return idx.db.execute("SELECT determination FROM rows WHERE id = ?",
+                          (first,)).fetchone()[0] == "Restricted"
+
+
+def test_search_counts_withheld_and_truncated(levels):
+    hosted = levels.search("steel", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER,
+                           limit=2)
+    assert (len(hosted.hits), hosted.withheld, hosted.truncated) == (2, 6, True)
+    local = levels.search("steel", lane=LOCAL_AI, customer_type=DEFENCE_CUSTOMER)
+    assert (len(local.hits), local.withheld, local.truncated) == (6, 3, False)
 
 
 # --- the filter ----------------------------------------------------------------
@@ -133,6 +184,66 @@ def test_delete_leaves_zero_and_other_opportunities_untouched(idx):
     hits = idx.search("cleat", lane=LOCAL_AI, customer_type=NON_DEFENCE_CUSTOMER)
     assert sources(hits) == ["b.md"]
     assert idx.db.execute("SELECT COUNT(*) FROM rows_fts").fetchone()[0] == 1
+
+
+MARKER = "zqxjvdestroymarker"
+
+
+def test_delete_destroys_the_text_in_the_file(tmp_path):
+    # A MATCH returning nothing is not enough: the words must leave the file.
+    path = tmp_path / "index.db"
+    idx = TextIndex(path)
+    for i in range(5):
+        add(idx, f"{MARKER} cleat {i}", opp="OPP-1", source=f"a{i}.md")
+    add(idx, "kept cleat", opp="OPP-2", source="b.md")
+    assert MARKER.encode() in path.read_bytes()
+    idx.delete_by_opportunity("OPP-1")
+    assert not any(MARKER.encode() in (b or b"") for (b,) in
+                   idx.db.execute("SELECT block FROM rows_fts_data"))
+    idx.close()
+    files = sorted(tmp_path.iterdir())  # the index, and any journal or WAL left
+    assert path in files
+    assert [f.name for f in files if MARKER.encode() in f.read_bytes()] == []
+    reopened = TextIndex(path)  # an existing file gets both settings again
+    assert sources(reopened.search("cleat", lane=LOCAL_AI,
+                                   customer_type=NON_DEFENCE_CUSTOMER)) == ["b.md"]
+    reopened.close()
+
+
+def test_delete_refuses_when_secure_delete_is_off(idx):
+    add(idx, "chunk cleat")
+    idx.db.execute("PRAGMA secure_delete = OFF")
+    with pytest.raises(RuntimeError, match="secure delete is off"):
+        idx.delete_by_opportunity("OPP-1")
+    assert idx.count("OPP-1") == 1
+
+
+class _SkipFtsDelete:
+    """A connection whose full-text delete does nothing, to prove the read-back."""
+
+    def __init__(self, db):
+        self._db = db
+
+    def execute(self, sql, *args):
+        if sql.startswith("DELETE FROM rows_fts"):
+            return self._db.execute("SELECT 0")
+        return self._db.execute(sql, *args)
+
+    def __enter__(self):
+        return self._db.__enter__()
+
+    def __exit__(self, *exc):
+        return self._db.__exit__(*exc)
+
+    def close(self):
+        self._db.close()
+
+
+def test_delete_raises_when_full_text_rows_remain(idx):
+    add(idx, "chunk cleat")
+    idx.db = _SkipFtsDelete(idx.db)
+    with pytest.raises(RuntimeError, match="1 full-text rows remain"):
+        idx.delete_by_opportunity("OPP-1")
 
 
 def test_delete_of_an_id_with_no_rows_is_zero_and_blank_refuses(idx):
