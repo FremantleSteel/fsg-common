@@ -107,3 +107,57 @@ def test_a_metric_thread_is_a_size_not_a_mark(raw, how):
     must not call them member marks, and their verdicts do not move."""
     assert sections.mark_only_reason(raw) is None
     assert sections.resolve(raw)[1] == how
+
+
+# --- round 2: the checker's strings ------------------------------------------
+
+@pytest.mark.parametrize("raw, mark", [
+    ("M1 - BASEPLATE", "M1"),       # was 1PL: an M is a thread only on a
+    ("M2 - PLATE", "M2"),           # threaded item, never on a plate
+    ("M12 - BASEPLATE", "M12"),     # was 12PL
+    ("B2/BASEPLATE", "B2"),         # was 2PL: a slash separates a mark too
+    ("B2: BASEPLATE", "B2"),        # was 2PL: so does a colon
+    ("B2:BASEPLATE", "B2"),
+    ("B2 / BASEPLATE", "B2"),
+])
+def test_m_on_a_plate_and_slash_or_colon_marks_are_marks(raw, mark):
+    assert sections.resolve(raw) == (None, "unresolved")
+    reason = sections.mark_only_reason(raw)
+    assert reason is not None and mark in reason
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("PLT10 BASEPLATE", "10PL"),     # PLT is the plate dialect (`PLT10`)
+    ("FP6 - PLATE", "6PL"),          # FP is a plate family's notation
+    ("R12 ROD", "12ROD"),            # R and D name a round bar's diameter
+    ("D12 ROD", "12ROD"),
+])
+def test_a_prefix_that_names_the_family_is_a_size(raw, expected):
+    """Each resolved this way before #64; the prefix names the same family
+    as the word after it, so its digits are the size."""
+    assert _id(raw) == expected
+    assert sections.mark_only_reason(raw) is None
+
+
+@pytest.mark.parametrize("raw", [
+    "R12 - BASEPLATE",               # R names a rod, not a plate: a mark
+    "D1 - PLATE",
+    "FP6 - ROD",                     # FP names a plate, not a rod: a mark
+])
+def test_a_family_prefix_on_another_family_is_still_a_mark(raw):
+    assert sections.resolve(raw) == (None, "unresolved")
+    assert sections.mark_only_reason(raw) is not None
+
+
+@pytest.mark.parametrize("raw", [
+    "HST3 WEDGE ANCHOR",
+    "SO130 STANCHION",
+    "M12 WEDGE ANCHOR",
+    "M16 STUD",
+])
+def test_a_product_code_is_not_called_a_member_mark(raw):
+    """No section family follows, so there is no missing size to report:
+    the reason is for a family named without its size, and a product code
+    before a product name is not that."""
+    assert sections.mark_only_reason(raw) is None
+    assert sections.resolve(raw) == (None, "unresolved")

@@ -430,13 +430,31 @@ def shape_modifier(raw: str) -> str | None:
 _LEADING_MARK = re.compile(r"^[A-Z]{1,3}\d{1,3}[A-Z]?(?=[\s\-,])")
 
 
-# `M12`, `M20`: a metric thread's diameter. The mark shape matches it, but it
-# is a size, so `_mark_only` never treats it as a member mark.
+# `_mark_only`'s own mark: `_LEADING_MARK` plus a slash or colon after it
+# (`B2/BASEPLATE`, `B2: BASEPLATE`). Kept separate so the demarking and
+# member-tag paths that use `_LEADING_MARK` are not widened by this issue.
+_MARK_BEFORE_WORD = re.compile(r"^[A-Z]{1,3}\d{1,3}[A-Z]?(?=[\s\-,/:])")
+
+# A mark whose letters name the same family as the word after it is a size:
+# `PLT10 BASEPLATE` is the plate dialect's 10 mm plate, `FP6 - PLATE` a 6 mm
+# plate, `R12 ROD` and `D12 ROD` a 12 mm bar, and each resolved that way
+# before #64. Only for that family: `R12 - BASEPLATE` is still a mark. PL,
+# BPL and SQ are absent because `_TYPE_WORDS` already catches them.
+_FAMILY_PREFIXES = {
+    "PL": {"PLT", "FP"}, "BPL": {"PLT", "FP"}, "FP": {"PLT", "FP"},
+    "ROD": {"R", "D", "DIA"},
+}
+
+# `M12`, `M20`: a metric thread's diameter, a size only on a threaded item.
+# `M12 THREADED ROD` states 12; `M12 - BASEPLATE` is a mark (it was 12PL).
 _METRIC_THREAD = re.compile(r"^M\d{1,3}$")
+_THREADED_ITEM = re.compile(
+    r"(?<![A-Z])(?:ROD|BAR|BOLT|STUD|ANCHOR|NUT|WASHER|THREAD\w*)(?![A-Z])")
 
 
 def _mark_only(text: str) -> str | None:
-    """The leading mark, when it holds every number in `text`.
+    """The leading mark, when it holds every number in `text` and a section
+    family follows it with no size.
 
     fsg-common#64: `B2 - BASEPLATE` resolved to 2PL, canonical. The only
     number in it is the mark's, and the plate branch read it as the
@@ -444,21 +462,29 @@ def _mark_only(text: str) -> str | None:
     nothing after the mark carries a number no size was stated at all.
 
     None when there is no mark, when a number follows it (`B2 - BASEPLATE
-    20` states 20), when nothing but separators follows it, or when the
-    "mark" is itself a size: section notation (`PL10 BASEPLATE` is a 10 mm
-    plate; the test is `_TYPE_WORDS`, the same one `_reads_as_section`
-    starts with) or a metric thread (`M12 THREADED ROD`, `M20 BOLT`: 42 of
-    the 49 Tier A lines this shape matched on 10 Oct 2026 were M sizes).
+    20` states 20), when no section family follows it (`HST3 WEDGE ANCHOR`,
+    `SO130 STANCHION`: a product code, and no size is missing because no
+    section was named), or when the "mark" is itself a size: section
+    notation (`PL10 BASEPLATE`; the test is `_TYPE_WORDS`, the same one
+    `_reads_as_section` starts with), a prefix naming the family that
+    follows (`_FAMILY_PREFIXES`), or a metric thread on a threaded item
+    (`M12 THREADED ROD`: 42 of the 49 Tier A lines this shape matched on
+    10 Oct 2026 were M sizes).
     """
-    found = _LEADING_MARK.match(text)
+    found = _MARK_BEFORE_WORD.match(text)
     if not found:
         return None
     mark, rest = found.group(0), text[found.end():]
-    if _NUM.search(rest) or not re.search(r"[A-Z]", rest):
+    if _NUM.search(rest):
         return None
-    if _METRIC_THREAD.match(mark):
+    kind = next((tok for pat, tok in _TYPE_WORDS if re.search(pat, rest)), None)
+    if kind is None:
+        return None
+    if _METRIC_THREAD.match(mark) and _THREADED_ITEM.search(rest):
         return None
     if any(re.search(pattern, mark) for pattern, _ in _TYPE_WORDS):
+        return None
+    if re.match(r"[A-Z]+", mark).group(0) in _FAMILY_PREFIXES.get(kind, ()):
         return None
     return mark
 
