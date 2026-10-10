@@ -430,6 +430,11 @@ def shape_modifier(raw: str) -> str | None:
 _LEADING_MARK = re.compile(r"^[A-Z]{1,3}\d{1,3}[A-Z]?(?=[\s\-,])")
 
 
+# `M12`, `M20`: a metric thread's diameter. The mark shape matches it, but it
+# is a size, so `_mark_only` never treats it as a member mark.
+_METRIC_THREAD = re.compile(r"^M\d{1,3}$")
+
+
 def _mark_only(text: str) -> str | None:
     """The leading mark, when it holds every number in `text`.
 
@@ -440,14 +445,18 @@ def _mark_only(text: str) -> str | None:
 
     None when there is no mark, when a number follows it (`B2 - BASEPLATE
     20` states 20), when nothing but separators follows it, or when the
-    "mark" is itself section notation (`PL10 BASEPLATE` is a 10 mm plate;
-    the test is `_TYPE_WORDS`, the same one `_reads_as_section` starts with).
+    "mark" is itself a size: section notation (`PL10 BASEPLATE` is a 10 mm
+    plate; the test is `_TYPE_WORDS`, the same one `_reads_as_section`
+    starts with) or a metric thread (`M12 THREADED ROD`, `M20 BOLT`: 42 of
+    the 49 Tier A lines this shape matched on 10 Oct 2026 were M sizes).
     """
     found = _LEADING_MARK.match(text)
     if not found:
         return None
     mark, rest = found.group(0), text[found.end():]
     if _NUM.search(rest) or not re.search(r"[A-Z]", rest):
+        return None
+    if _METRIC_THREAD.match(mark):
         return None
     if any(re.search(pattern, mark) for pattern, _ in _TYPE_WORDS):
         return None
@@ -468,7 +477,7 @@ def mark_only_reason(raw: str) -> str | None:
     mark = _mark_only(_expand_detailing_dialect(text))
     if mark is None:
         return None
-    return (f"the only number in {str(raw).strip()!r} is the member mark "
+    return (f"the only number in {str(raw).strip()!r} is in the leading mark "
             f"{mark}, and a mark is not a size: no size is stated")
 
 # A dimension group: numbers joined by 'x', e.g. '200 X 200 X 10', '400 SQ. X 20'.

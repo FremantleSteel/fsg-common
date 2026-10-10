@@ -94,3 +94,16 @@ def test_text_with_no_mark_is_not_this_form(raw):
     """No mark, no reason from this function: a bare `BASEPLATE` is the older
     `OBSERVED_GAPS` miss, not a mark that was refused."""
     assert sections.mark_only_reason(raw) is None
+
+
+@pytest.mark.parametrize("raw, how", [
+    ("M12 THREADED ROD", "shape-modifier"),
+    ("M20 BOLT", "unresolved"),
+    ("M24 WASHER", "unresolved"),
+])
+def test_a_metric_thread_is_a_size_not_a_mark(raw, how):
+    """`M12` has the mark's shape but is a 12 mm thread. Most of the lines
+    this shape matched in Tier A on 10 Oct 2026 were M sizes; the reason
+    must not call them member marks, and their verdicts do not move."""
+    assert sections.mark_only_reason(raw) is None
+    assert sections.resolve(raw)[1] == how
