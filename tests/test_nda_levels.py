@@ -1,6 +1,6 @@
-"""fsg_common.nda_levels (crm#2260 step 1): every value and use pinned by
-hand, absent and unknown inputs refuse, the box rule of D2 = A, the
-destruction column, and the JSON equal to the Python."""
+"""fsg_common.nda_levels (crm#2260 steps 1 and 3): every value and use pinned
+by hand, absent, unknown and retired inputs refuse, the box rule of D2 = A,
+the destruction column, and the JSON equal to the Python."""
 from __future__ import annotations
 
 import json
@@ -17,21 +17,30 @@ EXPECTED = {
     "No NDA":                         ("ordinary", True, True, "tool"),
     "Unrestricted":                   ("ordinary", True, True, "tool"),
     "Approval received":              ("ordinary", True, True, "tool"),
-    "Approval in progress":           ("restricted", False, True, "held"),
     "Restricted":                     ("restricted", False, True, "held"),
-    "NDA not applicable to this job": ("restricted", False, False, "tool"),
     "Defence - restricted":           ("defence", False, True, "person"),
 }
+# D3 = A (crm#2260 step 3): the two values the enum lost, written by hand.
+RETIRED = ("Approval in progress", "NDA not applicable to this job")
 # Not a value: each must refuse both uses, have no level, and go to a person.
 NOT_VALUES = [None, "", "   ", "\t", "unrestricted", "UNRESTRICTED", "under review",
               "defence - restricted", "Defence", "Defence – restricted",
               "Unrestricted2", "PERMIT", "Approved", ["No NDA"], ("No NDA",),
-              {"value": "No NDA"}, 0, 1, True, b"No NDA", "No NDA"]
+              {"value": "No NDA"}, 0, 1, True, b"No NDA", "No NDA", *RETIRED,
+              " Approval in progress ", "nda not applicable to this job"]
 
 
 def test_the_values_are_the_crm_enum_in_order():
     assert nl.VALUES == tuple(EXPECTED)
     assert nl.KNOWN_VALUES == set(EXPECTED)
+    assert len(nl.VALUES) == 6
+
+
+def test_the_retired_values_are_named_and_are_not_values():
+    assert nl.RETIRED_VALUES == RETIRED
+    assert not set(RETIRED) & nl.KNOWN_VALUES
+    for gone in ("APPROVAL_IN_PROGRESS", "NOT_APPLICABLE_TO_JOB"):
+        assert not hasattr(nl, gone)
 
 
 @pytest.mark.parametrize("value", list(EXPECTED))
@@ -62,8 +71,7 @@ def test_verdict_kinds_that_are_not_plain_refusals():
     v = nl.verdict
     assert v("Under review", HOSTED) == v("Under review", LOCAL) == nl.CANNOT_EVALUATE
     assert v("Defence - restricted", HOSTED) == nl.REFUSE_ABSOLUTE
-    assert v("Restricted", HOSTED) == v("Approval in progress", HOSTED) == nl.REFUSE
-    assert v("NDA not applicable to this job", LOCAL) == nl.REFUSE
+    assert v("Restricted", HOSTED) == nl.REFUSE
     for row in nl.VERDICTS.values():
         assert set(row) == {HOSTED, LOCAL}
         assert set(row.values()) <= set(nl.KINDS)
@@ -87,8 +95,7 @@ def test_use_and_the_box_have_no_default():
 def test_permitted_for_is_the_table_column():
     assert nl.permitted_for(HOSTED) == {"No NDA", "Unrestricted", "Approval received"}
     assert nl.permitted_for(LOCAL) == {"No NDA", "Unrestricted", "Approval received",
-                                       "Approval in progress", "Restricted",
-                                       "Defence - restricted"}
+                                       "Restricted", "Defence - restricted"}
 
 
 # --- the box (D2 = A, tender-review ADR 45) -----------------------------------
@@ -113,10 +120,10 @@ def test_approval_received_needs_a_reference_for_hosted():
 # --- destruction ------------------------------------------------------------------
 
 def test_destruction_lists_are_crm_tool_levels_and_held_levels():
-    # crm tender_destruction_plan.TOOL_LEVELS and HELD_LEVELS as of 13 Oct 2026.
-    assert nl.TOOL_LEVELS == ("No NDA", "Unrestricted", "Approval received",
-                              "NDA not applicable to this job")
-    assert nl.HELD_LEVELS == ("Approval in progress", "Restricted")
+    # crm#2206 (owner, Desk v66): a person handles defence, Restricted and
+    # anything else; the tool acts only at these three after D3 = A.
+    assert nl.TOOL_LEVELS == ("No NDA", "Unrestricted", "Approval received")
+    assert nl.HELD_LEVELS == ("Restricted",)
 
 
 # --- the table cannot be changed by a caller ----------------------------------------
@@ -141,13 +148,14 @@ def test_the_json_on_disk_is_the_python_table():
                          r["destruction"]) for r in doc["values"]}
     assert rows == EXPECTED
     assert [r["value"] for r in doc["values"]] == list(EXPECTED)
+    assert doc["retired_values_refuse"] == list(RETIRED)
     assert nl.main(["--check"]) == 0
 
 
 def test_check_fails_on_a_drifted_or_missing_json(tmp_path, monkeypatch, capsys):
     drifted = tmp_path / "nda_levels.json"
     doc = nl.as_document()
-    doc["values"][5][LOCAL] = "REFUSE"
+    doc["values"][4][LOCAL] = "REFUSE"
     drifted.write_text(json.dumps(doc), encoding="utf-8")
     # real-gate test: test_the_json_on_disk_is_the_python_table
     monkeypatch.setattr(nl, "JSON_PATH", drifted)

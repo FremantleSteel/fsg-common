@@ -34,25 +34,11 @@
       "destruction": "tool"
     },
     {
-      "value": "Approval in progress",
-      "level": "restricted",
-      "hosted-ai": "REFUSE",
-      "local-ai": "PERMIT",
-      "destruction": "held"
-    },
-    {
       "value": "Restricted",
       "level": "restricted",
       "hosted-ai": "REFUSE",
       "local-ai": "PERMIT",
       "destruction": "held"
-    },
-    {
-      "value": "NDA not applicable to this job",
-      "level": "restricted",
-      "hosted-ai": "REFUSE",
-      "local-ai": "REFUSE",
-      "destruction": "tool"
     },
     {
       "value": "Defence - restricted",
@@ -64,6 +50,10 @@
   ],
   "hosted_needs_approval_reference": [
     "Approval received"
+  ],
+  "retired_values_refuse": [
+    "Approval in progress",
+    "NDA not applicable to this job"
   ],
   "automated_processing_prohibited_true_refuses": [
     "hosted-ai",

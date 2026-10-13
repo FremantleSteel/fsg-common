@@ -5,14 +5,13 @@ it. Standard library only (`sqlite3`).
 
 **The levels are the CRM's `Opportunity.cNdaDetermination` values**, and the
 table is `fsg_common.nda_levels`, the one source every repo imports (crm#2260
-step 1). This module adds only the index's own rules:
+steps 1 and 3). This module adds only the index's own rules:
 
     Determination                    hosted  local
     Under review (or none)           refused at insert
     No NDA, Unrestricted             yes     yes
     Approval received                yes, with an approval reference
-    Restricted, Approval in progress no      yes
-    NDA not applicable to this job   no      no
+    Restricted                       no      yes
     Defence - restricted             no      yes, defence customer only
 
 `automated_processing_prohibited` set True excludes a row from both lanes.
@@ -22,7 +21,8 @@ tender-review ADR 45) removed the 9 Oct rule that Restricted and defence rows
 needed the box recorded first.
 
 **An absent input never answers.** A row with no determination, `Under review`
-or an unknown value is refused, with the reason. A row with no Opportunity id is
+or an unknown value is refused, with the reason. A value retired from the enum
+(`nda_levels.RETIRED_VALUES`) is unknown. A row with no Opportunity id is
 refused unless the caller passes `NOT_A_TENDER`, which says the text is FSG's
 own. A search must name its lane and customer type, or it is refused, and it
 returns a `SearchResult` that says how many matches the level filter withheld and
@@ -58,7 +58,6 @@ CUSTOMER_TYPES = (DEFENCE_CUSTOMER, NON_DEFENCE_CUSTOMER)  # tr eoi_kb.CUSTOMERS
 UNDER_REVIEW = nda_levels.UNDER_REVIEW
 APPROVAL_RECEIVED = nda_levels.APPROVAL_RECEIVED
 DEFENCE_RESTRICTED = nda_levels.DEFENCE_RESTRICTED
-NOT_APPLICABLE_TO_JOB = nda_levels.NOT_APPLICABLE_TO_JOB
 
 PERMITS = {lane: nda_levels.permitted_for(lane) for lane in LANES}
 # Every value that may be stored: decided, recognised. `Under review` is not one.

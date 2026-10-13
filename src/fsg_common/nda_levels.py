@@ -1,4 +1,4 @@
-"""The NDA levels table: one source for every FSG repo (crm#2260 step 1).
+"""The NDA levels table: one source for every FSG repo (crm#2260 steps 1 and 3).
 
 The owner's decision D1 = A (Desk v81, 13 Oct 2026): one levels table, here;
 fsg-estimating-crm and fsg-tender-review import it instead of keeping copies.
@@ -14,10 +14,16 @@ what the destruction tools may do at it:
     No NDA                           ordinary     PERMIT            PERMIT           tool
     Unrestricted                     ordinary     PERMIT            PERMIT           tool
     Approval received                ordinary     PERMIT            PERMIT           tool
-    Approval in progress             restricted   REFUSE            PERMIT           held
     Restricted                       restricted   REFUSE            PERMIT           held
-    NDA not applicable to this job   restricted   REFUSE            REFUSE           tool
     Defence - restricted             defence      REFUSE_ABSOLUTE   PERMIT           person
+
+**Six values, not eight** (D3 = A, crm#2260 step 3, 13 Oct 2026).
+"Approval in progress" (the same verdicts as Restricted: a task state, not a
+level) and "NDA not applicable to this job" (refused both uses, yet the
+purge treated it as No NDA) are gone. They are listed in `RETIRED_VALUES`
+for messages only: neither has a verdict, a level or a mapping here, so a
+record still carrying one refuses like any unknown value until the crm
+migration card rewrites it, with a person's YES.
 
 Asked by the caller, because they are not properties of the value:
 
@@ -51,10 +57,12 @@ UNDER_REVIEW = "Under review"
 NO_NDA = "No NDA"
 UNRESTRICTED = "Unrestricted"
 APPROVAL_RECEIVED = "Approval received"
-APPROVAL_IN_PROGRESS = "Approval in progress"
 RESTRICTED = "Restricted"
-NOT_APPLICABLE_TO_JOB = "NDA not applicable to this job"
 DEFENCE_RESTRICTED = "Defence - restricted"
+
+# Removed by D3 = A (crm#2260 step 3). Not values: no verdict, no level, no
+# mapping. A record holding one refuses as unknown and goes to a person.
+RETIRED_VALUES = ("Approval in progress", "NDA not applicable to this job")
 
 # --- the two AI uses ---------------------------------------------------------
 HOSTED_AI = "hosted-ai"   # a model run by a third party
@@ -91,10 +99,7 @@ _ROWS = (
     (APPROVAL_RECEIVED,      LEVEL_ORDINARY,     PERMIT,          PERMIT,          DESTROY_TOOL),
     # Hosted starts the approval letter process. Local inference is not a
     # disclosure to a third party (tender-review ADR 8).
-    (APPROVAL_IN_PROGRESS,   LEVEL_RESTRICTED,   REFUSE,          PERMIT,          DESTROY_HELD),
     (RESTRICTED,             LEVEL_RESTRICTED,   REFUSE,          PERMIT,          DESTROY_HELD),
-    # crm#529: reviewed, and refuses both uses as a decided fact.
-    (NOT_APPLICABLE_TO_JOB,  LEVEL_RESTRICTED,   REFUSE,          REFUSE,          DESTROY_TOOL),
     # tender-review ADR 43: the tightest level of the same process.
     (DEFENCE_RESTRICTED,     LEVEL_DEFENCE,      REFUSE_ABSOLUTE, PERMIT,          DESTROY_PERSON),
 )
@@ -161,8 +166,7 @@ def clears_local(determination, *, automated_processing_prohibited) -> bool:
     - True refuses at every level.
     - False, or None (no NDA record carries the box), gives the table's
       local answer. Since 13 Oct 2026 (D2 = A, crm#2260, tender-review
-      ADR 45) None no longer refuses Restricted, Approval in progress and
-      Defence - restricted.
+      ADR 45) None no longer refuses Restricted and Defence - restricted.
     - Anything else is not an answer and refuses.
 
     The value itself is still required: Under review, blank and anything not
@@ -199,6 +203,7 @@ def as_document() -> dict:
              LOCAL_AI: VERDICTS[v][LOCAL_AI], "destruction": DESTRUCTION[v]}
             for v in VALUES],
         "hosted_needs_approval_reference": sorted(HOSTED_NEEDS_APPROVAL_REFERENCE),
+        "retired_values_refuse": list(RETIRED_VALUES),
         "automated_processing_prohibited_true_refuses": list(USES),
     }
 
