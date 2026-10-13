@@ -39,7 +39,10 @@ def sources(result):
 # --- an absent level refuses; a present one inserts -------------------------
 
 @pytest.mark.parametrize("det", [None, "", "  ", "Under review", "under review",
-                                 "Not a value"])
+                                 "Not a value",
+                                 # retired by crm#2260 step 3 (D3 = A)
+                                 "Approval in progress",
+                                 "NDA not applicable to this job"])
 def test_absent_or_undecided_level_refuses(idx, det):
     with pytest.raises(IndexRefused):
         add(idx, "purlin spacing", det=det)
@@ -131,9 +134,9 @@ def levels_rank_restricted_first(idx):
 def test_search_counts_withheld_and_truncated(levels):
     hosted = levels.search("steel", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER,
                            limit=2)
-    assert (len(hosted.hits), hosted.withheld, hosted.truncated) == (2, 7, True)
+    assert (len(hosted.hits), hosted.withheld, hosted.truncated) == (2, 6, True)
     local = levels.search("steel", lane=LOCAL_AI, customer_type=DEFENCE_CUSTOMER)
-    assert (len(local.hits), local.withheld, local.truncated) == (8, 2, False)
+    assert (len(local.hits), local.withheld, local.truncated) == (8, 1, False)
 
 
 # --- the filter ----------------------------------------------------------------
@@ -144,7 +147,6 @@ def levels(idx):
     add(idx, "steel note", opp="O-ord2", det="No NDA", flag=None, source="ordinary-noflag")
     add(idx, "steel note", opp="O-res", det="Restricted", source="restricted")
     add(idx, "steel note", opp="O-def", det="Defence - restricted", source="defence")
-    add(idx, "steel note", opp="O-na", det="NDA not applicable to this job", source="na")
     add(idx, "steel note", opp="O-ai", det="No NDA", flag=True, source="ai-forbidden")
     add(idx, "steel note", opp="O-apr", det="Approval received", ref="letter 3",
         source="approved")
