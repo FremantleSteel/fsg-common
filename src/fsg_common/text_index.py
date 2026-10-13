@@ -4,20 +4,22 @@ One module so the NDA filter lives in one place and no consumer re-implements
 it. Standard library only (`sqlite3`).
 
 **The levels are the CRM's `Opportunity.cNdaDetermination` values**, and the
-table below is ADR 43's (fsg-tender-review, 9 Oct 2026), restated from
-`fsg-estimating-crm/scripts/lib/nda_gate.py` (`DETERMINATION_VERDICTS`,
-`LOCAL_PERMIT_NEEDS_FLAG`) and `fsg-tender-review/src/fsg_tender_review/nda.py`
-(`_PERMITS`). `tests/test_text_index.py` compares it with the crm copy.
+table is `fsg_common.nda_levels`, the one source every repo imports (crm#2260
+step 1). This module adds only the index's own rules:
 
     Determination                    hosted  local
     Under review (or none)           refused at insert
     No NDA, Unrestricted             yes     yes
     Approval received                yes, with an approval reference
-    Restricted, Approval in progress no      yes, flag recorded
+    Restricted, Approval in progress no      yes
     NDA not applicable to this job   no      no
-    Defence - restricted             no      yes, flag recorded, defence customer only
+    Defence - restricted             no      yes, defence customer only
 
 `automated_processing_prohibited` set True excludes a row from both lanes.
+False or None (no NDA record carries the box) does not stop a local read at
+any permitting level: the owner's decision D2 = A (13 Oct 2026, crm#2260,
+tender-review ADR 45) removed the 9 Oct rule that Restricted and defence rows
+needed the box recorded first.
 
 **An absent input never answers.** A row with no determination, `Under review`
 or an unknown value is refused, with the reason. A row with no Opportunity id is
@@ -43,28 +45,24 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-HOSTED_AI = "hosted-ai"
-LOCAL_AI = "local-ai"
-LANES = (HOSTED_AI, LOCAL_AI)
+from . import nda_levels
+
+HOSTED_AI = nda_levels.HOSTED_AI
+LOCAL_AI = nda_levels.LOCAL_AI
+LANES = nda_levels.USES
 
 DEFENCE_CUSTOMER = "defence"
 NON_DEFENCE_CUSTOMER = "non-defence"
 CUSTOMER_TYPES = (DEFENCE_CUSTOMER, NON_DEFENCE_CUSTOMER)  # tr eoi_kb.CUSTOMERS
 
-UNDER_REVIEW = "Under review"
-APPROVAL_RECEIVED = "Approval received"
-DEFENCE_RESTRICTED = "Defence - restricted"
-NOT_APPLICABLE_TO_JOB = "NDA not applicable to this job"
+UNDER_REVIEW = nda_levels.UNDER_REVIEW
+APPROVAL_RECEIVED = nda_levels.APPROVAL_RECEIVED
+DEFENCE_RESTRICTED = nda_levels.DEFENCE_RESTRICTED
+NOT_APPLICABLE_TO_JOB = nda_levels.NOT_APPLICABLE_TO_JOB
 
-PERMITS = {
-    HOSTED_AI: frozenset({"No NDA", "Unrestricted", APPROVAL_RECEIVED}),
-    LOCAL_AI: frozenset({"No NDA", "Unrestricted", APPROVAL_RECEIVED,
-                         "Restricted", "Approval in progress", DEFENCE_RESTRICTED}),
-}
-LOCAL_PERMIT_NEEDS_FLAG = frozenset({"Restricted", "Approval in progress",
-                                     DEFENCE_RESTRICTED})
+PERMITS = {lane: nda_levels.permitted_for(lane) for lane in LANES}
 # Every value that may be stored: decided, recognised. `Under review` is not one.
-INDEXABLE = PERMITS[LOCAL_AI] | {NOT_APPLICABLE_TO_JOB}
+INDEXABLE = nda_levels.KNOWN_VALUES - {UNDER_REVIEW}
 
 
 class _NotATender:
@@ -229,16 +227,11 @@ class TextIndex:
         where = [f"r.determination IN ({','.join('?' * len(allowed))})",
                  "r.automated_processing_prohibited IS NOT 1"]
         params: list = [query, *allowed]
-        if lane == LOCAL_AI:
-            # Restricted and defence permit a local read only with the flag recorded.
-            needs = sorted(LOCAL_PERMIT_NEEDS_FLAG)
-            where.append(f"NOT (r.determination IN ({','.join('?' * len(needs))})"
-                         " AND r.automated_processing_prohibited IS NULL)")
-            params += needs
-        else:
+        if lane == HOSTED_AI:
             # Hosted: 'Approval received' needs the approval reference recorded.
-            where.append("(r.determination != ? OR r.approval_reference IS NOT NULL)")
-            params.append(APPROVAL_RECEIVED)
+            for value in sorted(nda_levels.HOSTED_NEEDS_APPROVAL_REFERENCE):
+                where.append("(r.determination != ? OR r.approval_reference IS NOT NULL)")
+                params.append(value)
         permitted = " AND ".join(where)
         matched, allowed_n = self.db.execute(
             "SELECT COUNT(*), COALESCE(SUM(CASE WHEN " + permitted + " THEN 1 ELSE 0"

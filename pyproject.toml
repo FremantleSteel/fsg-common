@@ -28,6 +28,9 @@ where = ["src"]
 # depended on a working tree it did not control.
 [tool.setuptools.package-data]
 "fsg_common.sections" = ["data/*.json"]
+# The NDA levels table's generated JSON (crm#2260 step 1), read by consumers
+# that cannot import Python.
+"fsg_common" = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

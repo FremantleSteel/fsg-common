@@ -1,0 +1,72 @@
+{
+  "generated_by": "python -m fsg_common.nda_levels --write (never edit by hand)",
+  "uses": [
+    "hosted-ai",
+    "local-ai"
+  ],
+  "values": [
+    {
+      "value": "Under review",
+      "level": "not decided",
+      "hosted-ai": "CANNOT_EVALUATE",
+      "local-ai": "CANNOT_EVALUATE",
+      "destruction": "person"
+    },
+    {
+      "value": "No NDA",
+      "level": "ordinary",
+      "hosted-ai": "PERMIT",
+      "local-ai": "PERMIT",
+      "destruction": "tool"
+    },
+    {
+      "value": "Unrestricted",
+      "level": "ordinary",
+      "hosted-ai": "PERMIT",
+      "local-ai": "PERMIT",
+      "destruction": "tool"
+    },
+    {
+      "value": "Approval received",
+      "level": "ordinary",
+      "hosted-ai": "PERMIT",
+      "local-ai": "PERMIT",
+      "destruction": "tool"
+    },
+    {
+      "value": "Approval in progress",
+      "level": "restricted",
+      "hosted-ai": "REFUSE",
+      "local-ai": "PERMIT",
+      "destruction": "held"
+    },
+    {
+      "value": "Restricted",
+      "level": "restricted",
+      "hosted-ai": "REFUSE",
+      "local-ai": "PERMIT",
+      "destruction": "held"
+    },
+    {
+      "value": "NDA not applicable to this job",
+      "level": "restricted",
+      "hosted-ai": "REFUSE",
+      "local-ai": "REFUSE",
+      "destruction": "tool"
+    },
+    {
+      "value": "Defence - restricted",
+      "level": "defence",
+      "hosted-ai": "REFUSE_ABSOLUTE",
+      "local-ai": "PERMIT",
+      "destruction": "person"
+    }
+  ],
+  "hosted_needs_approval_reference": [
+    "Approval received"
+  ],
+  "automated_processing_prohibited_true_refuses": [
+    "hosted-ai",
+    "local-ai"
+  ]
+}
