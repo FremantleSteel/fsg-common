@@ -20,7 +20,8 @@ library and the resolver that turns a drawing's own notation into a canonical
 | `fsg_common.merge_on_green` | merges a PR only when its checks are green, then prunes the worktree, wrapped by each repo's `scripts/merge_on_green.py` (crm-only until 3 Oct) |
 | `fsg_common.sync_main_clones` | fast-forwards the five main clones to origin/main and refuses anything else (crm#1964), wrapped by each repo's `scripts/sync_main_clones.py` |
 | `fsg_common.deploy_tags` | git tags recording what commit is deployed, per artefact: the union of crm's and tools' copies (crm#1976), wrapped by `scripts/deploy_tags.py` in crm and tools |
-| `fsg_common.text_index` | a SQLite full-text (FTS5) index whose rows carry their NDA level: refuses a row with no level, filters by lane and customer type before the limit and says how many it withheld, deletes by Opportunity id with SQLite secure delete so the words leave the file (#68); no consumer yet |
+| `fsg_common.text_index` | a SQLite full-text (FTS5) index whose rows carry their NDA level: refuses a row with no level, filters by lane and customer type before the limit and says how many it withheld, deletes by Opportunity id with SQLite secure delete so the words leave the file (#68), reading the levels from `nda_levels` |
+| `fsg_common.nda_levels` | the NDA levels table, one source for every repo (crm#2260 step 1): each `Opportunity.cNdaDetermination` value's level, hosted and local verdict, and what the destruction tools may do; `clears_local()` (a ticked box refuses; unticked or unrecorded does not); a value not in the table refuses. `data/nda_levels.json` is generated from it (`python -m fsg_common.nda_levels --write`) for the n8n tests |
 
 The public section snapshot no longer carries the labour rates (#46, crm#1775 D1):
 each consumer reads them from its own private file. A merge here changes nothing

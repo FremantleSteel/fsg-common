@@ -2,11 +2,9 @@
 delete by Opportunity id, and the recheck the nightly job runs."""
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
 import pytest
 
+from fsg_common import nda_levels
 from fsg_common import text_index as ti
 from fsg_common.text_index import (
     DEFENCE_CUSTOMER,
@@ -133,9 +131,9 @@ def levels_rank_restricted_first(idx):
 def test_search_counts_withheld_and_truncated(levels):
     hosted = levels.search("steel", lane=HOSTED_AI, customer_type=NON_DEFENCE_CUSTOMER,
                            limit=2)
-    assert (len(hosted.hits), hosted.withheld, hosted.truncated) == (2, 6, True)
+    assert (len(hosted.hits), hosted.withheld, hosted.truncated) == (2, 7, True)
     local = levels.search("steel", lane=LOCAL_AI, customer_type=DEFENCE_CUSTOMER)
-    assert (len(local.hits), local.withheld, local.truncated) == (6, 3, False)
+    assert (len(local.hits), local.withheld, local.truncated) == (8, 2, False)
 
 
 # --- the filter ----------------------------------------------------------------
@@ -152,6 +150,8 @@ def levels(idx):
         source="approved")
     add(idx, "steel note", opp="O-apx", det="Approval received", source="approved-noref")
     add(idx, "steel note", opp="O-nof", det="Restricted", flag=None, source="res-noflag")
+    add(idx, "steel note", opp="O-dnf", det="Defence - restricted", flag=None,
+        source="def-noflag")
     return idx
 
 
@@ -162,13 +162,25 @@ def test_hosted_never_sees_restricted_defence_or_ai_forbidden(levels):
 
 
 def test_local_sees_defence_only_for_a_defence_customer(levels):
+    # crm#2260 D2 = A: a Restricted or defence row with no box recorded
+    # (res-noflag, def-noflag) is read locally like one recorded unticked.
     assert sources(levels.search("steel", lane=LOCAL_AI,
                                  customer_type=DEFENCE_CUSTOMER)) == [
-        "approved", "approved-noref", "defence", "ordinary", "ordinary-noflag",
-        "restricted"]
+        "approved", "approved-noref", "def-noflag", "defence", "ordinary",
+        "ordinary-noflag", "res-noflag", "restricted"]
     assert sources(levels.search("steel", lane=LOCAL_AI,
                                  customer_type=NON_DEFENCE_CUSTOMER)) == [
-        "approved", "approved-noref", "ordinary", "ordinary-noflag", "restricted"]
+        "approved", "approved-noref", "ordinary", "ordinary-noflag", "res-noflag",
+        "restricted"]
+
+
+@pytest.mark.parametrize("det", ["Restricted", "Defence - restricted", "No NDA"])
+def test_a_ticked_box_refuses_local_at_every_level(idx, det):
+    # The control for the rule above: the box, ticked, still refuses.
+    add(idx, "steel note", opp="O-1", det=det, flag=True, source="ticked")
+    add(idx, "steel note", opp="O-2", det=det, flag=None, source="no-record")
+    assert sources(idx.search("steel", lane=LOCAL_AI,
+                              customer_type=DEFENCE_CUSTOMER)) == ["no-record"]
 
 
 # --- delete by Opportunity id ----------------------------------------------------
@@ -290,22 +302,12 @@ def test_recheck_propagates_an_unreadable_level(idx):
     assert idx.count("OPP-1") == 1
 
 
-# --- the table agrees with the crm's copy ---------------------------------------
+# --- the table is fsg_common.nda_levels, not a copy ---------------------------
 
-# The crm checkout beside this repo's clone or beside its worktrees folder.
-CRM_GATE = next((p / "fsg-estimating-crm/scripts/lib/nda_gate.py"
-                 for p in Path(__file__).resolve().parents[2:4]
-                 if (p / "fsg-estimating-crm/scripts/lib/nda_gate.py").exists()),
-                Path("fsg-estimating-crm/scripts/lib/nda_gate.py"))
-
-
-@pytest.mark.skipif(not CRM_GATE.exists(), reason=f"no crm checkout at {CRM_GATE}")
-def test_permits_match_crm_nda_gate():
-    spec = importlib.util.spec_from_file_location("crm_nda_gate", CRM_GATE)
-    gate = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(gate)
+def test_permits_come_from_the_one_levels_table():
+    # crm#2260 step 1: the index reads the shared table; nothing here restates it.
     for lane in (HOSTED_AI, LOCAL_AI):
-        crm = {d for d in gate.DETERMINATION_VERDICTS if gate.permits(d, lane)}
-        assert crm == ti.PERMITS[lane], lane
-    assert gate.LOCAL_PERMIT_NEEDS_FLAG == ti.LOCAL_PERMIT_NEEDS_FLAG
-    assert set(gate.DETERMINATION_VERDICTS) - {ti.UNDER_REVIEW} == ti.INDEXABLE
+        assert ti.PERMITS[lane] == nda_levels.permitted_for(lane), lane
+    assert ti.INDEXABLE == nda_levels.KNOWN_VALUES - {nda_levels.UNDER_REVIEW}
+    assert ti.LANES == nda_levels.USES
+    assert not hasattr(ti, "LOCAL_PERMIT_NEEDS_FLAG")
