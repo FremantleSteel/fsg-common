@@ -430,10 +430,12 @@ def shape_modifier(raw: str) -> str | None:
 _LEADING_MARK = re.compile(r"^[A-Z]{1,3}\d{1,3}[A-Z]?(?=[\s\-,])")
 
 
-# `_mark_only`'s own mark: `_LEADING_MARK` plus a slash or colon after it
-# (`B2/BASEPLATE`, `B2: BASEPLATE`). Kept separate so the demarking and
-# member-tag paths that use `_LEADING_MARK` are not widened by this issue.
-_MARK_BEFORE_WORD = re.compile(r"^[A-Z]{1,3}\d{1,3}[A-Z]?(?=[\s\-,/:])")
+# `_mark_only`'s own mark: `_LEADING_MARK` plus a slash, colon, en dash or em
+# dash after it (`B2/BASEPLATE`, `B2: BASEPLATE`, and an en dash with no spaces). Kept
+# separate so the demarking and member-tag paths that use `_LEADING_MARK` are
+# not widened by this issue. The dashes are escaped so the source stays ASCII.
+_MARK_BEFORE_WORD = re.compile(
+    r"^[A-Z]{1,3}\d{1,3}[A-Z]?(?=[\s\-,/:\u2013\u2014])")
 
 # A mark whose letters name the same family as the word after it is a size:
 # `PLT10 BASEPLATE` is the plate dialect's 10 mm plate, `FP6 - PLATE` a 6 mm
