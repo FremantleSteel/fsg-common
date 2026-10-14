@@ -161,3 +161,68 @@ def test_a_product_code_is_not_called_a_member_mark(raw):
     before a product name is not that."""
     assert sections.mark_only_reason(raw) is None
     assert sections.resolve(raw) == (None, "unresolved")
+
+
+# --- fsg-common#66: an en or em dash with no spaces ---------------------------
+
+EN = "–"
+EM = "—"
+
+
+@pytest.mark.parametrize("raw, mark", [
+    (f"B2{EN}BASEPLATE", "B2"),       # the issue: was 2PL
+    (f"B2{EM}BASEPLATE", "B2"),       # em dash, same
+    (f"BP3{EN}BASEPLATE", "BP3"),
+    (f"B12{EN}BASE PLATE", "B12"),
+    (f"b2{EN}baseplate", "B2"),       # case
+    (f"B2A{EN}BASEPLATE", "B2A"),
+    (f"B2{EN}PLATE", "B2"),
+    (f"B16{EN}ROD", "B16"),           # not only plate
+    (f"M12{EN}BASEPLATE", "M12"),     # an M is a thread only on a threaded item
+    (f"R12{EN}BASEPLATE", "R12"),     # a family prefix on another family
+])
+def test_an_unspaced_en_or_em_dash_after_a_mark_is_a_separator(raw, mark):
+    assert sections.resolve(raw) == (None, "unresolved")
+    reason = sections.mark_only_reason(raw)
+    assert reason is not None
+    assert mark in reason
+    assert "no size" in reason
+
+
+def test_the_unspaced_en_dash_is_never_2pl():
+    section, how = sections.resolve(f"B2{EN}BASEPLATE")
+    assert section is None
+    assert how == "unresolved"
+    assert "2PL" not in sections.canonical_candidates(f"B2{EN}BASEPLATE")
+
+
+@pytest.mark.parametrize("raw", [
+    "B2-BASEPLATE",                   # hyphen, no spaces: as before
+    "B2 - BASEPLATE",                 # hyphen, spaced: as before
+    f"B2 {EN} BASEPLATE",             # en dash, spaced: as before
+    f"B2 {EM} BASEPLATE",
+])
+def test_control_the_other_dash_forms_behave_as_before(raw):
+    assert sections.resolve(raw) == (None, "unresolved")
+    reason = sections.mark_only_reason(raw)
+    assert reason is not None and "B2" in reason and "no size" in reason
+
+
+@pytest.mark.parametrize("raw, expected", [
+    (f"B2{EN}BASEPLATE 20", "20PL"),      # a stated thickness still resolves
+    (f"B2{EN}20 BASEPLATE", "20PL"),
+    (f"B2{EN}BASEPLATE 2", "2PL"),        # a 2 after the plate word is a size
+    (f"B2{EM}BASEPLATE 20THK", "20PL"),
+    (f"PL10{EN}BASEPLATE", "10PL"),       # the "mark" is itself a plate callout
+    (f"PLT10{EN}BASEPLATE", "10PL"),      # a prefix naming the family is a size
+    (f"R12{EN}ROD", "12ROD"),
+])
+def test_control_a_stated_size_after_an_unspaced_en_dash_still_resolves(raw, expected):
+    assert _id(raw) == expected
+    assert sections.mark_only_reason(raw) is None
+
+
+def test_control_a_metric_thread_before_an_unspaced_en_dash_is_a_size():
+    raw = f"M12{EN}THREADED ROD"
+    assert sections.mark_only_reason(raw) is None
+    assert sections.resolve(raw)[1] == "shape-modifier"
