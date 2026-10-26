@@ -9,7 +9,7 @@
       "value": "Under review",
       "level": "not decided",
       "hosted-ai": "CANNOT_EVALUATE",
-      "local-ai": "CANNOT_EVALUATE",
+      "local-ai": "PERMIT",
       "destruction": "person"
     },
     {
