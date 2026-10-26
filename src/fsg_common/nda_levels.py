@@ -10,12 +10,21 @@ enum's order. Each one carries its level, its verdict for each AI use, and
 what the destruction tools may do at it:
 
     Value                            level        hosted            local            destruction
-    Under review                     not decided  CANNOT_EVALUATE   CANNOT_EVALUATE  person
+    Under review                     not decided  CANNOT_EVALUATE   PERMIT           person
     No NDA                           ordinary     PERMIT            PERMIT           tool
     Unrestricted                     ordinary     PERMIT            PERMIT           tool
     Approval received                ordinary     PERMIT            PERMIT           tool
     Restricted                       restricted   REFUSE            PERMIT           held
     Defence - restricted             defence      REFUSE_ABSOLUTE   PERMIT           person
+
+**"Under review" permits a local read** (tr#1125, 26 Oct 2026; the owner's
+Desk answer: "A: Bring the others into line with the local lane, in the
+shared levels table (recommended)"). It applies tender-review ADR 49: nobody
+has set the level yet, which is a reason not to send the material to a
+hosted model, not a reason to stop FSG's own hardware reading it. Hosted
+still refuses it (CANNOT_EVALUATE), the level is still "not decided", and the
+destruction tools still send it to a person. A caller that needs "has a
+person decided?" asks `level_of()`, never the local column.
 
 **Six values, not eight** (D3 = A, crm#2260 step 3, 13 Oct 2026).
 "Approval in progress" (the same verdicts as Restricted: a task state, not a
@@ -93,7 +102,8 @@ DESTROY_PERSON = "person"  # always a person: not decided, or defence material
 
 _ROWS = (
     # value,                 level,              hosted,          local,           destruction
-    (UNDER_REVIEW,           LEVEL_NOT_DECIDED,  CANNOT_EVALUATE, CANNOT_EVALUATE, DESTROY_PERSON),
+    # Local PERMIT since tr#1125 (tender-review ADR 49); hosted unchanged.
+    (UNDER_REVIEW,           LEVEL_NOT_DECIDED,  CANNOT_EVALUATE, PERMIT,          DESTROY_PERSON),
     (NO_NDA,                 LEVEL_ORDINARY,     PERMIT,          PERMIT,          DESTROY_TOOL),
     (UNRESTRICTED,           LEVEL_ORDINARY,     PERMIT,          PERMIT,          DESTROY_TOOL),
     (APPROVAL_RECEIVED,      LEVEL_ORDINARY,     PERMIT,          PERMIT,          DESTROY_TOOL),
@@ -169,9 +179,10 @@ def clears_local(determination, *, automated_processing_prohibited) -> bool:
       ADR 45) None no longer refuses Restricted and Defence - restricted.
     - Anything else is not an answer and refuses.
 
-    The value itself is still required: Under review, blank and anything not
-    in the table refuse. The keyword has no default, so every caller states
-    which case it is in.
+    The value itself is still required: blank and anything not in the table
+    refuse. Under review clears like any value whose local column permits
+    (tr#1125, ADR 49), unless the box is ticked. The keyword has no default,
+    so every caller states which case it is in.
     """
     if automated_processing_prohibited is not None and not isinstance(
             automated_processing_prohibited, bool):

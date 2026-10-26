@@ -13,7 +13,8 @@ HOSTED, LOCAL = "hosted-ai", "local-ai"
 
 # value -> (level, hosted permits, local permits, destruction), written by hand.
 EXPECTED = {
-    "Under review":                   ("not decided", False, False, "person"),
+    # tr#1125 (ADR 49): local permits, hosted still refuses.
+    "Under review":                   ("not decided", False, True, "person"),
     "No NDA":                         ("ordinary", True, True, "tool"),
     "Unrestricted":                   ("ordinary", True, True, "tool"),
     "Approval received":              ("ordinary", True, True, "tool"),
@@ -69,7 +70,8 @@ def test_a_value_not_in_the_table_never_answers(value):
 
 def test_verdict_kinds_that_are_not_plain_refusals():
     v = nl.verdict
-    assert v("Under review", HOSTED) == v("Under review", LOCAL) == nl.CANNOT_EVALUATE
+    assert v("Under review", HOSTED) == nl.CANNOT_EVALUATE
+    assert v("Under review", LOCAL) == nl.PERMIT
     assert v("Defence - restricted", HOSTED) == nl.REFUSE_ABSOLUTE
     assert v("Restricted", HOSTED) == nl.REFUSE
     for row in nl.VERDICTS.values():
@@ -94,8 +96,9 @@ def test_use_and_the_box_have_no_default():
 
 def test_permitted_for_is_the_table_column():
     assert nl.permitted_for(HOSTED) == {"No NDA", "Unrestricted", "Approval received"}
-    assert nl.permitted_for(LOCAL) == {"No NDA", "Unrestricted", "Approval received",
-                                       "Restricted", "Defence - restricted"}
+    assert nl.permitted_for(LOCAL) == {"Under review", "No NDA", "Unrestricted",
+                                       "Approval received", "Restricted",
+                                       "Defence - restricted"}
 
 
 # --- the box (D2 = A, tender-review ADR 45) -----------------------------------
@@ -182,3 +185,28 @@ def test_module_is_standard_library_only():
     imports = sorted(ln for ln in src.splitlines() if ln.startswith(("import ", "from ")))
     assert imports == ["from __future__ import annotations", "from pathlib import Path",
                        "from types import MappingProxyType", "import json", "import sys"]
+
+
+# --- Under review (tr#1125, tender-review ADR 49) -----------------------------
+
+def test_under_review_clears_local_and_never_hosted():
+    """The owner's Desk answer (26 Oct 2026): the levels table follows the
+    local lane. Local clears unless the box is ticked; hosted never clears;
+    the level stays not decided and destruction stays a person's."""
+    ur = "Under review"
+    assert nl.clears_local(ur, automated_processing_prohibited=None) is True
+    assert nl.clears_local(ur, automated_processing_prohibited=False) is True
+    assert nl.clears_local(ur, automated_processing_prohibited=True) is False
+    assert nl.permits(ur, HOSTED) is False
+    assert ur not in nl.permitted_for(HOSTED)
+    assert nl.level_of(ur) == nl.LEVEL_NOT_DECIDED
+    assert nl.destruction(ur) == nl.DESTROY_PERSON
+    assert ur not in nl.TOOL_LEVELS
+
+
+@pytest.mark.parametrize("absent", [None, "", "  ", "under review", "Under Review"])
+def test_no_value_is_not_under_review_here(absent):
+    """The table does not turn an absent or misspelt value into Under review;
+    a caller that maps "no record" to Under review does it itself."""
+    assert nl.clears_local(absent, automated_processing_prohibited=None) is False
+    assert nl.permits(absent, HOSTED) is False
