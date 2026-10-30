@@ -120,7 +120,7 @@ def test_main_control_clears_when_the_api_answers(tmp_path, capsys):
 def _view(**kw):
     d = {"number": 5, "state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE",
          "body": "Closes #5\n\nShort.", "comments": [], "headRefName": "feat-x",
-         "baseRefName": "main",
+         "baseRefName": "main", "changedFiles": 1, "additions": 2, "deletions": 0,
          "statusCheckRollup": [{"name": "ci", "status": "COMPLETED",
                                 "conclusion": "SUCCESS", "startedAt": "2026-10-01T00:00:00Z"}]}
     d.update(kw)
@@ -152,6 +152,8 @@ def test_merge_refuses_when_the_merge_did_not_complete():
     def gh(cmd):
         if cmd[2] == "merge":
             return R(rc=1, out="", err="blocked by branch protection")
+        if cmd[2] == "list":
+            return R(rc=0, out="[]", err="")
         if cmd[-1] == "state":
             return R(rc=0, out=json.dumps({"state": "OPEN"}), err="")
         return R(rc=0, out=json.dumps(_view()), err="")
@@ -164,6 +166,8 @@ def test_merge_refuses_when_the_state_read_after_merge_fails():
     def gh(cmd):
         if cmd[2] == "merge":
             return R(rc=0, out="", err="")
+        if cmd[2] == "list":
+            return R(rc=0, out="[]", err="")
         if cmd[-1] == "state":
             return R(rc=1, out="", err="boom")
         return R(rc=0, out=json.dumps(_view()), err="")
@@ -179,6 +183,8 @@ def test_merge_control_merges_when_everything_is_readable():
         if cmd[2] == "merge":
             merged.append(1)
             return R(rc=0, out="", err="")
+        if cmd[2] == "list":
+            return R(rc=0, out="[]", err="")
         if cmd[-1] == "state":
             return R(rc=0, out=json.dumps({"state": "MERGED" if merged else "OPEN"}), err="")
         return R(rc=0, out=json.dumps(_view()), err="")

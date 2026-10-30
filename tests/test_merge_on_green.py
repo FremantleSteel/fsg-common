@@ -22,7 +22,8 @@ def run_(name, concl="SUCCESS", start="2026-09-30T01:00:00Z", status="COMPLETED"
 def pr(**kw):
     d = {"number": 5, "state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE",
          "body": "Closes #5\n\nShort.", "comments": [], "headRefName": "feat-x",
-         "baseRefName": "main", "statusCheckRollup": [run_("ci")]}
+         "baseRefName": "main", "statusCheckRollup": [run_("ci")],
+         "changedFiles": 2, "additions": 10, "deletions": 1}
     d.update(kw)
     return d
 
@@ -30,7 +31,9 @@ def pr(**kw):
 # not-a-gate: transport (gh and git runners); the gate logic runs for real.
 # The unreadable-answer refusals are in test_real_gates.py
 class Harness:
-    def __init__(self, views, dirty=False, wt=True, cur="main", main_dirty=False):
+    def __init__(self, views, dirty=False, wt=True, cur="main", main_dirty=False,
+                 children="[]", extra=()):
+        self.children, self.extra = children, list(extra)
         self.views, self.dirty, self.wt = list(views), dirty, wt
         self.cur, self.main_dirty = cur, main_dirty
         self.gitcalls, self.lines, self.merged, self.removed = [], [], False, False
@@ -39,8 +42,12 @@ class Harness:
         if cmd[2] == "merge":
             self.merged = True
             return R(rc=0, out="", err="")
+        if cmd[2] == "list":
+            return R(rc=0 if self.children is not None else 1, out=self.children or "", err="boom")
         if cmd[-1] == "state":
             return R(rc=0, out=json.dumps({"state": "MERGED" if self.merged else "OPEN"}), err="")
+        if cmd[-1] == "mergeCommit":
+            return R(rc=0, out=json.dumps({"mergeCommit": {"oid": "abc123"}}), err="")
         v = self.views.pop(0) if len(self.views) > 1 else self.views[0]
         return R(rc=0, out=json.dumps(v), err="")
 
@@ -62,7 +69,7 @@ class Harness:
         return R(rc=0, out="", err="")
 
     def go(self, repo="FremantleSteel/fsg-estimating-crm"):
-        argv = ["5", "-R", repo, "--timeout", "100", "--interval", "1"]
+        argv = ["5", "-R", repo, "--timeout", "100", "--interval", "1", *self.extra]
         t = iter(range(0, 10000, 30))
         return m.main(argv, gh=self.gh, git=self.git, sleep=lambda s: None,
                       clock=lambda: next(t), out=self.lines.append)
@@ -113,6 +120,72 @@ class Refusals(unittest.TestCase):
 
     def test_no_checks_at_all_is_absent_not_pass(self):
         self.refused(pr(statusCheckRollup=[]), "absent")
+
+
+class SharedGate(unittest.TestCase):
+    """The merge gate GitHub Free cannot give a private repo."""
+
+    def refused(self, h, text):
+        self.assertEqual(h.go(), m.REFUSED)
+        self.assertIn(text, " ".join(h.lines))
+        self.assertFalse(h.merged)
+
+    def test_empty_diff_refuses(self):
+        self.refused(Harness([pr(changedFiles=0, additions=0, deletions=0)]), "diff is empty")
+
+    def test_unreadable_diff_refuses(self):
+        v = pr()
+        del v["changedFiles"]
+        self.refused(Harness([v]), "could not be read")
+
+    def test_stacked_parent_with_open_child_refuses(self):
+        self.refused(Harness([pr()], children='[{"number": 9}]'), "#9")
+
+    def test_unreadable_child_list_refuses(self):
+        self.refused(Harness([pr()], children=None), "cannot list open child PRs")
+
+    def test_garbled_child_list_refuses(self):
+        self.refused(Harness([pr()], children='{"x": 1}'), "could not be parsed")
+
+    def test_merge_commit_is_printed(self):
+        h = Harness([pr()])
+        self.assertEqual(h.go(), m.OK)
+        self.assertIn("merge commit abc123", h.lines)
+
+    def test_required_check_missing_refuses_after_waiting(self):
+        self.refused(Harness([pr()], extra=["--require", "leak-guard"]), "absent: leak-guard")
+
+    def test_required_check_pending_does_not_merge(self):
+        v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard", None, status="IN_PROGRESS")])
+        h = Harness([v], extra=["--require", "leak-guard"])
+        self.assertEqual(h.go(), m.PENDING)
+        self.assertFalse(h.merged)
+
+    def test_required_check_red_refuses(self):
+        v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard", "FAILURE")])
+        self.refused(Harness([v], extra=["--require", "leak-guard"]), "leak-guard (FAILURE)")
+
+    def test_empty_rollup_with_required_refuses(self):
+        self.refused(Harness([pr(statusCheckRollup=[])], extra=["--require", "ci"]), "absent: ci")
+
+    def test_required_check_green_merges(self):
+        v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard")])
+        h = Harness([v], extra=["--require", "ci", "--require", "leak-guard"])
+        self.assertEqual(h.go(), m.OK)
+        self.assertTrue(h.merged)
+
+    def test_required_check_skipped_refuses(self):
+        v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard", "SKIPPED")])
+        h = Harness([v], extra=["--require", "leak-guard"])
+        self.assertEqual(h.go(), m.REFUSED)
+        self.assertFalse(h.merged)
+        self.assertTrue(any("SKIPPED" in ln and "leak-guard" in ln for ln in h.lines), h.lines)
+
+    def test_unrequired_skipped_check_still_merges(self):
+        v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard", "SKIPPED")])
+        h = Harness([v], extra=["--require", "ci"])
+        self.assertEqual(h.go(), m.OK)
+        self.assertTrue(h.merged)
 
 
 class Waiting(unittest.TestCase):
