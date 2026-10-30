@@ -487,3 +487,16 @@ def test_bt_ct_ids_carry_their_nominal_mass_as_an_fsg_convention():
     for row in rows:
         hit, how = sections.resolve(row.section_id)
         assert how == "exact" and hit.mass_kg_per_m == row.mass_kg_per_m, row.section_id
+
+
+def test_42_4_chs_2_is_the_formula_mass_the_estimators_answered():
+    """tools#591, Q24 (7 Sep 2026): 1.99 kg/m, not the 1.08 no 42.4 OD pipe gives.
+    The control is its neighbour, which agrees with the same formula."""
+    import math
+    def tube(od, t):
+        return math.pi * (od - t) * t * 7.85e-3
+    section, _how = sections.resolve("42.4CHS2")
+    assert section.mass_kg_per_m == pytest.approx(1.99, abs=0.005)
+    assert section.mass_kg_per_m == pytest.approx(tube(42.4, 2.0), rel=0.01)
+    neighbour, _ = sections.resolve("42.4CHS2.6")
+    assert neighbour.mass_kg_per_m == pytest.approx(tube(42.4, 2.6), rel=0.01)
