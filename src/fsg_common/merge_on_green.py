@@ -25,6 +25,12 @@ Works for any FremantleSteel repo via -R. Never checks a branch out in a clone.
    400 words or more; no closing keyword and no "No issue:" line (these three
    are fsg_common.pr_body.check, the same rules CI holds); mergeable not
    MERGEABLE; a draft; a PR that is not open.
+   Also refused: an EMPTY diff (no changed file, no
+   added or deleted line; an unreadable count refuses too); a stacked parent,
+   meaning any other open PR whose base is this PR's head branch (an unreadable
+   list refuses); and, for each `--require NAME`, a required check that is
+   missing, pending at timeout or not green. GitHub Free cannot hold a merge on
+   red checks in a private repo, so this script is the gate.
 3. MERGE: squash, --delete-branch, then confirm the PR reads MERGED.
 4. CLEAN UP: find the local worktree (under C:\\Users\\dkagi) whose branch is the
    PR head, in the clone this repo maps to; refuse to remove a dirty one but
@@ -51,7 +57,7 @@ HOME = r"C:\Users\dkagi"
 BAD = {"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"}
 GOOD = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 FIELDS = ("number,state,isDraft,mergeable,body,comments,headRefName,"
-          "baseRefName,statusCheckRollup")
+          "baseRefName,statusCheckRollup,changedFiles,additions,deletions")
 
 
 def run(cmd: list[str], cwd: str | None = None) -> SimpleNamespace:
@@ -94,6 +100,30 @@ def summarise_checks(rollup):
         else:
             failed.append(f"{name} ({concl})")      # unknown conclusion never passes
     return failed, pending, passed, superseded
+
+
+def diff_problem(pr: dict) -> str | None:
+    """Why the diff cannot be accepted, or None. An unreadable count never passes."""
+    try:
+        files, add, dele = (int(pr[k]) for k in ("changedFiles", "additions", "deletions"))
+    except (KeyError, TypeError, ValueError):
+        return "the diff size could not be read (changedFiles/additions/deletions)"
+    if files == 0 and add == 0 and dele == 0:
+        return "the diff is empty (no file changed)"
+    return None
+
+
+def stacked_children(listing: SimpleNamespace) -> tuple[list[str], str | None]:
+    """(open PRs based on this head branch, or the reason the list was unreadable)."""
+    if listing.rc != 0:
+        return [], f"cannot list open child PRs: {listing.err.strip()}"
+    try:
+        rows = json.loads(listing.out)
+        if not isinstance(rows, list):
+            raise TypeError("not a list")
+        return [f"#{r['number']}" for r in rows], None
+    except (ValueError, KeyError, TypeError) as exc:
+        return [], f"open child PR list could not be parsed ({exc!r})"
 
 
 def _under_home(path: str) -> bool:
@@ -205,6 +235,8 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
     ap.add_argument("--timeout", type=float, default=1800, help="seconds to wait for checks")
     ap.add_argument("--clone", help=f"local clone of the repo (default {HOME}\\<repo name>)")
     ap.add_argument("--allow-no-checks", action="store_true")
+    ap.add_argument("--require", action="append", default=[], metavar="CHECK",
+                    help="a check name that must be present and green (repeatable)")
     a = ap.parse_args(argv)
     clone = a.clone or str(PureWindowsPath(HOME) / a.repo.split("/")[-1])
 
@@ -234,6 +266,9 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
         failed, pending, passed, superseded = summarise_checks(pr.get("statusCheckRollup"))
         if failed:
             return refuse("checks failed: " + ", ".join(failed))
+        absent = [n for n in a.require if n not in passed and n not in
+                  {p for p in pending}]
+        pending = pending + [f"{n} (not started)" for n in absent]
         if not pending and not passed and not a.allow_no_checks:
             return refuse("no check reported at all (a path-filtered check that never ran "
                           "is absent, not passed); pass --allow-no-checks to accept that")
@@ -242,6 +277,8 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
                 return refuse(f"mergeable is {pr['mergeable']}, not MERGEABLE")
             break
         if clock() >= deadline:
+            if absent:
+                return refuse("required check(s) absent: " + ", ".join(absent))
             out(f"PENDING #{a.pr}: still waiting at timeout; "
                 f"checks pending: {', '.join(pending) or 'none'}; mergeable {pr['mergeable']}")
             return PENDING
@@ -249,6 +286,16 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
             f"{len(passed)} passed")
         sleep(a.interval)
 
+    problem = diff_problem(pr)
+    if problem:
+        return refuse(problem)
+    kids, why = stacked_children(gh(["gh", "pr", "list", "-R", a.repo, "--state", "open",
+                                     "--base", pr["headRefName"], "--json", "number"]))
+    if why:
+        return refuse(why)
+    if kids:
+        return refuse(f"stacked parent: open child PR(s) {', '.join(kids)} are based on "
+                      f"{pr['headRefName']}; merge or retarget them first")
     out(f"checks green: {len(passed)} passed, {len(superseded)} superseded run(s) ignored; "
         "checks that never ran are absent from this count")
     mg = gh(["gh", "pr", "merge", str(a.pr), "-R", a.repo, "--squash", "--delete-branch"])
@@ -257,6 +304,12 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
     if state != "MERGED":
         return refuse(f"merge did not complete (state {state}): {(mg.err or mg.out).strip()}")
     out(f"MERGED #{a.pr} into {pr.get('baseRefName', 'main')}")
+    mc = gh(["gh", "pr", "view", str(a.pr), "-R", a.repo, "--json", "mergeCommit"])
+    try:
+        oid = json.loads(mc.out)["mergeCommit"]["oid"] if mc.rc == 0 else None
+    except (ValueError, KeyError, TypeError):
+        oid = None
+    out(f"merge commit {oid}" if oid else "merge commit: could not be read (PR is merged)")
     notes, complete = cleanup(pr, clone, git)
     for n in notes:
         out(n)
