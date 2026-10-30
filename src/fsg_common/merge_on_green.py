@@ -29,7 +29,9 @@ Works for any FremantleSteel repo via -R. Never checks a branch out in a clone.
    added or deleted line; an unreadable count refuses too); a stacked parent,
    meaning any other open PR whose base is this PR's head branch (an unreadable
    list refuses); and, for each `--require NAME`, a required check that is
-   missing, pending at timeout or not green. GitHub Free cannot hold a merge on
+   missing at timeout, red, or SKIPPED (a skipped check never ran, so it is
+   not green when required). A required check still running at timeout is
+   PENDING (exit 2), like any pending check. GitHub Free cannot hold a merge on
    red checks in a private repo, so this script is the gate.
 3. MERGE: squash, --delete-branch, then confirm the PR reads MERGED.
 4. CLEAN UP: find the local worktree (under C:\\Users\\dkagi) whose branch is the
@@ -67,7 +69,10 @@ def run(cmd: list[str], cwd: str | None = None) -> SimpleNamespace:
 
 
 def summarise_checks(rollup):
-    """(failed, pending, passed, superseded) check names, superseded runs dropped."""
+    """(failed, pending, passed, superseded, skipped) names, superseded runs dropped.
+
+    A SKIPPED check is in `passed` (an unrequired one does not block) and also
+    in `skipped`, so a required check that never ran can be refused."""
     latest: dict[str, dict] = {}
     superseded: list[str] = []
 
@@ -84,7 +89,7 @@ def summarise_checks(rollup):
             if stamp(c) <= stamp(latest[name]):
                 continue
         latest[name] = c
-    failed, pending, passed = [], [], []
+    failed, pending, passed, skipped = [], [], [], []
     for name, c in sorted(latest.items()):
         if "state" in c and "status" not in c:      # legacy StatusContext
             done = c["state"] not in ("PENDING", "EXPECTED")
@@ -97,9 +102,11 @@ def summarise_checks(rollup):
             pending.append(name)
         elif concl in GOOD:
             passed.append(name)
+            if concl == "SKIPPED":
+                skipped.append(name)
         else:
             failed.append(f"{name} ({concl})")      # unknown conclusion never passes
-    return failed, pending, passed, superseded
+    return failed, pending, passed, superseded, skipped
 
 
 def diff_problem(pr: dict) -> str | None:
@@ -263,9 +270,14 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
         problems = pr_body.check(pr.get("body"), first, None)
         if problems:
             return refuse("; ".join(problems))
-        failed, pending, passed, superseded = summarise_checks(pr.get("statusCheckRollup"))
+        failed, pending, passed, superseded, skipped = summarise_checks(
+            pr.get("statusCheckRollup"))
         if failed:
             return refuse("checks failed: " + ", ".join(failed))
+        never_ran = [n for n in a.require if n in skipped]
+        if never_ran:
+            return refuse("required check(s) SKIPPED, so they never ran: "
+                          + ", ".join(never_ran))
         absent = [n for n in a.require if n not in passed and n not in
                   {p for p in pending}]
         pending = pending + [f"{n} (not started)" for n in absent]

@@ -170,7 +170,22 @@ class SharedGate(unittest.TestCase):
 
     def test_required_check_green_merges(self):
         v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard")])
-        self.assertEqual(Harness([v], extra=["--require", "ci", "--require", "leak-guard"]).go(), m.OK)
+        h = Harness([v], extra=["--require", "ci", "--require", "leak-guard"])
+        self.assertEqual(h.go(), m.OK)
+        self.assertTrue(h.merged)
+
+    def test_required_check_skipped_refuses(self):
+        v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard", "SKIPPED")])
+        h = Harness([v], extra=["--require", "leak-guard"])
+        self.assertEqual(h.go(), m.REFUSED)
+        self.assertFalse(h.merged)
+        self.assertTrue(any("SKIPPED" in ln and "leak-guard" in ln for ln in h.lines), h.lines)
+
+    def test_unrequired_skipped_check_still_merges(self):
+        v = pr(statusCheckRollup=[run_("ci"), run_("leak-guard", "SKIPPED")])
+        h = Harness([v], extra=["--require", "ci"])
+        self.assertEqual(h.go(), m.OK)
+        self.assertTrue(h.merged)
 
 
 class Waiting(unittest.TestCase):
