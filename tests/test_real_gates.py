@@ -120,7 +120,7 @@ def test_main_control_clears_when_the_api_answers(tmp_path, capsys):
 def _view(**kw):
     d = {"number": 5, "state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE",
          "body": "Closes #5\n\nShort.", "comments": [], "headRefName": "feat-x",
-         "baseRefName": "main", "changedFiles": 1, "additions": 2, "deletions": 0,
+         "baseRefName": "main", "headRefOid": "deadbeef", "changedFiles": 1, "additions": 2, "deletions": 0,
          "statusCheckRollup": [{"name": "ci", "status": "COMPLETED",
                                 "conclusion": "SUCCESS", "startedAt": "2026-10-01T00:00:00Z"}]}
     d.update(kw)
