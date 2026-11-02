@@ -73,6 +73,7 @@ The section library and labour rates are a generated snapshot of the workbook's 
 
 | Run | What it does | Defined in |
 | --- | --- | --- |
+| `python scripts/check_no_client_data.py` | Refuse to commit a client document, a credential or a private name. | `scripts/check_no_client_data.py` |
 | `python scripts/gen_commands_index.py` | Generate docs/COMMANDS.md -- the task-to-command index (thin wrapper). | `scripts/gen_commands_index.py` |
 | `python scripts/sync_main_clones.py` | Fast-forward the five FSG main clones to origin/main (report-only with --check). | `scripts/sync_main_clones.py` |
 

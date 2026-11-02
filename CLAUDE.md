@@ -71,9 +71,8 @@ entry; both consumers read this copy and neither keeps its own.
   an FSG-owned org): catalogues every literal `Rostov-au/` across all five repos' tracked
   files, and with `--apply` rewrites it to `<new-org>/`. Dry-run by default, the new org name
   is never guessed, and it never commits or pushes — five repos need five separate commits.
-  `docs/org-rename-catalogue-20260915.md` is the 15 Sep 2026 catalogue (132 occurrences across
-  the five repos) this script was written from and verified against. As of that date the org
-  does not exist yet, so `--apply` has only ever run against a throwaway clone.
+  Its catalogue was removed from this public repo (crm#2813); git history keeps it. As of
+  15 Sep 2026 the org does not exist yet, so `--apply` has only ever run against a throwaway clone.
 
 ## Test and lint
 
