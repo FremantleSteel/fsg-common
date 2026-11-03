@@ -22,7 +22,7 @@ def run_(name, concl="SUCCESS", start="2026-09-30T01:00:00Z", status="COMPLETED"
 def pr(**kw):
     d = {"number": 5, "state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE",
          "body": "Closes #5\n\nShort.", "comments": [], "headRefName": "feat-x",
-         "baseRefName": "main", "statusCheckRollup": [run_("ci")],
+         "baseRefName": "main", "headRefOid": "deadbeef", "statusCheckRollup": [run_("ci")],
          "changedFiles": 2, "additions": 10, "deletions": 1}
     d.update(kw)
     return d
@@ -270,3 +270,59 @@ class SharedAcrossRepos(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Issue78(unittest.TestCase):
+    """fsg-common#78: pin the head, NEUTRAL required, hidden failed rerun."""
+
+    def merge_cmd(self, h):
+        return h.merge_cmd
+
+    def harness(self, view, **kw):
+        h = Harness([view], **kw)
+        orig = h.gh
+
+        def gh(cmd):
+            if cmd[2] == "merge":
+                h.merge_cmd = cmd
+            return orig(cmd)
+        h.gh = gh
+        h.merge_cmd = None
+        return h
+
+    def test_merge_is_pinned_to_the_head_read_with_the_checks(self):
+        h = self.harness(pr(headRefOid="abc999"))
+        self.assertEqual(h.go(), m.OK)
+        self.assertEqual(h.merge_cmd[-2:], ["--match-head-commit", "abc999"])
+
+    def test_absent_head_commit_refuses(self):
+        v = pr()
+        del v["headRefOid"]
+        h = self.harness(v)
+        self.assertEqual(h.go(), m.REFUSED)
+        self.assertIn("headRefOid", " ".join(h.lines))
+        self.assertFalse(h.merged)
+
+    def test_required_neutral_refuses(self):
+        h = self.harness(pr(statusCheckRollup=[run_("ci", "NEUTRAL")]), extra=["--require", "ci"])
+        self.assertEqual(h.go(), m.REFUSED)
+        self.assertIn("NEUTRAL", " ".join(h.lines))
+        self.assertFalse(h.merged)
+
+    def test_unrequired_neutral_still_passes(self):
+        h = self.harness(pr(statusCheckRollup=[run_("ci"), run_("lint", "NEUTRAL")]),
+                         extra=["--require", "ci"])
+        self.assertEqual(h.go(), m.OK)
+
+    def test_red_run_behind_a_green_rerun_is_reported(self):
+        roll = [run_("ci", "FAILURE", "2026-09-30T01:00:00Z"),
+                run_("ci", "SUCCESS", "2026-09-30T02:00:00Z")]
+        h = self.harness(pr(statusCheckRollup=roll))
+        self.assertEqual(h.go(), m.OK)
+        self.assertIn("hidden by a newer run", " ".join(h.lines))
+        self.assertIn("ci (FAILURE)", " ".join(h.lines))
+
+    def test_no_warning_when_nothing_was_hidden(self):
+        h = self.harness(pr())
+        h.go()
+        self.assertNotIn("hidden", " ".join(h.lines))

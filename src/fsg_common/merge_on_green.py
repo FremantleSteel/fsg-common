@@ -30,10 +30,14 @@ Works for any FremantleSteel repo via -R. Never checks a branch out in a clone.
    meaning any other open PR whose base is this PR's head branch (an unreadable
    list refuses); and, for each `--require NAME`, a required check that is
    missing at timeout, red, or SKIPPED (a skipped check never ran, so it is
-   not green when required). A required check still running at timeout is
+   not green when required), or NEUTRAL (it proved nothing; an unrequired
+   NEUTRAL check still passes). A required check still running at timeout is
    PENDING (exit 2), like any pending check. GitHub Free cannot hold a merge on
    red checks in a private repo, so this script is the gate.
-3. MERGE: squash, --delete-branch, then confirm the PR reads MERGED.
+3. MERGE: squash, --delete-branch, pinned with --match-head-commit to the head
+   commit read with the checks (an unreadable head refuses; a push in between
+   makes the merge fail, never merges unchecked code). A failed run hidden by a
+   newer run of the same name is printed as a WARNING. Then confirm the PR reads MERGED.
 4. CLEAN UP: find the local worktree (under C:\\Users\\dkagi) whose branch is the
    PR head, in the clone this repo maps to; refuse to remove a dirty one but
    still report the merge; otherwise remove it and delete the local branch;
@@ -59,7 +63,7 @@ HOME = r"C:\Users\dkagi"
 BAD = {"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"}
 GOOD = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 FIELDS = ("number,state,isDraft,mergeable,body,comments,headRefName,"
-          "baseRefName,statusCheckRollup,changedFiles,additions,deletions")
+          "baseRefName,headRefOid,statusCheckRollup,changedFiles,additions,deletions")
 
 
 def run(cmd: list[str], cwd: str | None = None) -> SimpleNamespace:
@@ -69,12 +73,16 @@ def run(cmd: list[str], cwd: str | None = None) -> SimpleNamespace:
 
 
 def summarise_checks(rollup):
-    """(failed, pending, passed, superseded, skipped) names, superseded runs dropped.
+    """(failed, pending, passed, superseded, skipped, neutral, hidden) names.
 
-    A SKIPPED check is in `passed` (an unrequired one does not block) and also
-    in `skipped`, so a required check that never ran can be refused."""
+    A SKIPPED or NEUTRAL check is in `passed` (an unrequired one does not
+    block) and also in `skipped` / `neutral`, so a required check that never
+    ran or proved nothing can be refused. `hidden` lists older runs that
+    FAILED but were replaced by a newer run of the same name, so a person sees
+    the red run behind a green re-run (fsg-common#78 item 3)."""
     latest: dict[str, dict] = {}
     superseded: list[str] = []
+    dropped: list[dict] = []
 
     def stamp(c):
         return c.get("startedAt") or c.get("completedAt") or ""
@@ -87,9 +95,13 @@ def summarise_checks(rollup):
         if name in latest:
             superseded.append(name)
             if stamp(c) <= stamp(latest[name]):
+                dropped.append(c)
                 continue
+            dropped.append(latest[name])
         latest[name] = c
-    failed, pending, passed, skipped = [], [], [], []
+    hidden = sorted(f"{c.get('name') or c.get('context') or '?'} ({c.get('conclusion')})"
+                    for c in dropped if c.get("conclusion") in BAD)
+    failed, pending, passed, skipped, neutral = [], [], [], [], []
     for name, c in sorted(latest.items()):
         if "state" in c and "status" not in c:      # legacy StatusContext
             done = c["state"] not in ("PENDING", "EXPECTED")
@@ -104,9 +116,11 @@ def summarise_checks(rollup):
             passed.append(name)
             if concl == "SKIPPED":
                 skipped.append(name)
+            elif concl == "NEUTRAL":
+                neutral.append(name)
         else:
             failed.append(f"{name} ({concl})")      # unknown conclusion never passes
-    return failed, pending, passed, superseded, skipped
+    return failed, pending, passed, superseded, skipped, neutral, hidden
 
 
 def diff_problem(pr: dict) -> str | None:
@@ -270,7 +284,7 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
         problems = pr_body.check(pr.get("body"), first, None)
         if problems:
             return refuse("; ".join(problems))
-        failed, pending, passed, superseded, skipped = summarise_checks(
+        failed, pending, passed, superseded, skipped, neutral, hidden = summarise_checks(
             pr.get("statusCheckRollup"))
         if failed:
             return refuse("checks failed: " + ", ".join(failed))
@@ -278,6 +292,10 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
         if never_ran:
             return refuse("required check(s) SKIPPED, so they never ran: "
                           + ", ".join(never_ran))
+        inconclusive = [n for n in a.require if n in neutral]
+        if inconclusive:
+            return refuse("required check(s) ended NEUTRAL, which proves nothing: "
+                          + ", ".join(inconclusive))
         absent = [n for n in a.require if n not in passed and n not in
                   {p for p in pending}]
         pending = pending + [f"{n} (not started)" for n in absent]
@@ -287,6 +305,10 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
         if not pending and pr["mergeable"] != "UNKNOWN":
             if pr["mergeable"] != "MERGEABLE":
                 return refuse(f"mergeable is {pr['mergeable']}, not MERGEABLE")
+            head = pr.get("headRefOid")
+            if not head or not isinstance(head, str):
+                return refuse("the head commit could not be read (headRefOid), so the "
+                              "merge cannot be pinned to the commit the checks saw")
             break
         if clock() >= deadline:
             if absent:
@@ -310,7 +332,11 @@ def main(argv=None, gh=run, git=run, sleep=time.sleep, clock=time.monotonic,
                       f"{pr['headRefName']}; merge or retarget them first")
     out(f"checks green: {len(passed)} passed, {len(superseded)} superseded run(s) ignored; "
         "checks that never ran are absent from this count")
-    mg = gh(["gh", "pr", "merge", str(a.pr), "-R", a.repo, "--squash", "--delete-branch"])
+    if hidden:
+        out("WARNING: older failed run(s) hidden by a newer run of the same name: "
+            + ", ".join(hidden) + ". Check they were a re-run of a flaky step.")
+    mg = gh(["gh", "pr", "merge", str(a.pr), "-R", a.repo, "--squash", "--delete-branch",
+             "--match-head-commit", head])
     v = gh(["gh", "pr", "view", str(a.pr), "-R", a.repo, "--json", "state"])
     state = json.loads(v.out)["state"] if v.rc == 0 else "UNKNOWN"
     if state != "MERGED":
