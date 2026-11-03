@@ -1,0 +1,10 @@
+#!/bin/sh
+# Blocks client documents, credentials and private names before they reach a
+# commit in this PUBLIC repo (crm#2813). Install once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# It needs the private term list: set FSG_LEAK_TERMS_FILE to a file outside
+# this repo (one term per line). Without it the hook refuses, on purpose.
+# CI runs the same check, because a fresh clone has no hook installed.
+python scripts/check_no_client_data.py || exit 1

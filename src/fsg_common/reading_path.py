@@ -67,10 +67,10 @@ special-case away.
 
 Same pattern `scripts/vendor_fsg_common.py` and
 `fsg-tender-review/scripts/check_fsg_common_pins.py` already use for this
-exact problem: `FSG_COMMON_PAT` first (David's classic PAT, `repo` scope),
-then `GH_TOKEN`, then `GITHUB_TOKEN`. Three of the four files this module
-reads over the API live in private repos; a workflow's own `GITHUB_TOKEN` is
-scoped to its own repository and cannot read them. **Absent input must not
+exact problem: `FSG_COMMON_PAT` first, then `GH_TOKEN`, then `GITHUB_TOKEN`.
+Three of the four files this module reads over the API live in private
+repos; a workflow's own `GITHUB_TOKEN` is scoped to its own repository and
+cannot read them. **Absent input must not
 answer**: no credential is a REFUSAL (exit 2), never a total that silently
 omitted four of five files. A repo whose CI has no `FSG_COMMON_PAT` secret
 refuses every run until one is added -- that is this module working, not a

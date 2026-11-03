@@ -34,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # the leak guard reads the push or PR range
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -42,7 +44,32 @@ jobs:
       - name: Install
         run: pip install ".[dev]"
 
+      - name: Block client documents, credentials and private names
+        # crm#2813: this repo is public, so a leak is published the moment it
+        # is pushed, and until now it ran no leak guard on itself. Same range
+        # logic as the four private repos. The private term list comes from
+        # the FSG_LEAK_TERMS repository secret and is never printed; without
+        # it this step REFUSES (exit 2) rather than passing a check it could
+        # not run. `.githooks/pre-commit` runs the same script locally.
+        if: '!cancelled()'
+        env:
+          FSG_LEAK_TERMS: ${{ secrets.FSG_LEAK_TERMS }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.sha }}"
+          elif [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            RANGE="${{ github.event.before }}..${{ github.sha }}"
+          else
+            RANGE=""
+          fi
+          if [ -n "$RANGE" ]; then
+            python scripts/check_no_client_data.py --range "$RANGE"
+          else
+            python scripts/check_no_client_data.py --all
+          fi
+
       - name: ruff check
+        if: '!cancelled()'
         run: ruff check .
 
       - name: The compulsory reading path stays under 7,500 words
@@ -90,9 +117,9 @@ jobs:
 
   tests:
     # Linux only, deliberately -- dropped the Windows leg 5 Sep 2026 rather
-    # than leave it declared and permanently unpickupable. `truenas-win10-vm`
-    # (the `fsg-windows` label) is a separate machine neither this session
-    # nor its coordinator has access to register a runner on, so a declared
+    # than leave it declared and permanently unpickupable. The Windows
+    # runner is a separate machine no session can register a runner on
+    # from here, so a declared
     # Windows leg here would sit `pending` forever, which is a worse failure
     # mode than not having it: an absent check that reads as a stalled one
     # rather than a missing one.

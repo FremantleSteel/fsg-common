@@ -1,0 +1,5 @@
+#!/bin/sh
+# Refuses a commit message that holds a private term (crm#2813). Same term
+# list as pre-commit: FSG_LEAK_TERMS_FILE. Installed by the same
+# `git config core.hooksPath .githooks`.
+python scripts/check_no_client_data.py --message-file "$1" || exit 1
