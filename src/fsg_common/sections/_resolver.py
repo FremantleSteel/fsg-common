@@ -1368,6 +1368,125 @@ class SectionLibrary:
                 return hit, "substitution"
         return None, "unresolved"
 
+    def ambiguous_candidates(self, raw: str) -> list[Section]:
+        """When `resolve()` comes back `unresolved` for a bare depth with no size
+        given (`250UB`, not `250UB37`) and the library carries more than one
+        section at that depth, the sections it could have meant.
+
+        `250UB` alone is genuinely three commercial sizes (`250UB26`/`31`/`37`)
+        -- the drawing hasn't chosen between them, and treating a bare miss the
+        same as a real gap loses that distinction. A caller can put the real
+        choice in front of an estimator instead of a flat "unresolved". Empty
+        whenever the notation doesn't even name a recognised type, or already
+        carries a size (a genuine miss at that point, not an ambiguity; that is
+        `absent_size_candidates()`' case).
+
+        A method since fsg-common#80, so it reads THIS library: a library built
+        from a live workbook names the workbook's sections, never the packaged
+        snapshot's.
+        """
+        text = str(raw or "").upper().replace("×", " X ")
+        kind = next((tok for pat, tok in _TYPE_WORDS if re.search(pat, text)), None)
+        if kind is None:
+            return []
+        nums = [_trim(n) for n in _NUM.findall(text)]
+        if not nums:
+            return []
+
+        # A section's head is not always one number. `250UB` is depth alone, but
+        # `250x150 RHS` and `65x50 UA` name a two-number head and are just as
+        # ambiguous without a wall or leg thickness -- and RHS, SHS and UA between
+        # them are a large share of any real pack.
+        #
+        # This used to require exactly one number, so every two-number family came
+        # back unresolved with NO candidates named: the estimator got "unresolved"
+        # and no way to raise a useful RFI, on the most common ambiguity there is.
+        # Found by scripts/permute_packs.py.
+        #
+        # The rule is unchanged in substance: candidates are named only when the
+        # notation consumes ALL its numbers in the head, i.e. no size was given.
+        # A notation carrying a size that still misses is a genuine miss, not an
+        # ambiguity, and must stay empty.
+        heads = ["X".join(nums)]
+        if len(nums) == 2 and nums[0] == nums[1]:
+            # A square hollow section is written `100x100 SHS` on drawings and
+            # filed `100SHS5` in the library -- resolve() already collapses the
+            # equal pair for `100x100x5 SHS`, so candidate naming must too.
+            heads.append(nums[0])
+        for head in heads:
+            family = self._family(head, kind)
+            # One candidate counts. `100TFB` had exactly one section at that depth
+            # (`100TFB45`), and a two-or-more threshold turned the easiest case in
+            # the library into a blank: unresolved, with nothing named, when there
+            # was precisely one thing it could have meant.
+            #
+            # It is still not resolved automatically, and that is deliberate --
+            # naming the one candidate lets an estimator settle it in a second;
+            # picking it silently would be the library guessing, which CLAUDE.md
+            # rules out.
+            if family:
+                return [section for _size, section
+                        in sorted(family, key=lambda pair: pair[0])]
+        return []
+
+    def absent_size_candidates(self, raw: str) -> list[Section]:
+        """For a notation that names a family and a size the library does not
+        carry, the sections it *does* carry at that head -- never the answer.
+
+        `ambiguous_candidates()` deliberately stays empty here: `BT100*11` has
+        chosen a size, so it is a genuine miss and not an ambiguity. But the
+        estimator reading that miss is better told what the library holds at
+        exactly that depth (`100BT12`, `100BT15`). A section the library cannot
+        resolve is a finding with its candidates named, and that covers both.
+
+        A caller must present these as what the library holds at that head,
+        never as a suggestion: `BT100*11` is not `100BT12`, and the whole point
+        of leaving it unresolved is that nobody may say it is.
+
+        Empty when the notation names no recognised type, when it gives no size
+        beyond the head (`ambiguous_candidates()`' case), when this library
+        resolves it after all, or when this library carries nothing at that head
+        -- a family it does not stock, where nothing is invented.
+        """
+        text = str(raw or "").upper().replace("×", " X ")
+        kind = next((tok for pat, tok in _TYPE_WORDS if re.search(pat, text)), None)
+        if kind is None:
+            return []
+        nums = [_trim(n) for n in _NUM.findall(text)]
+        # Two numbers minimum: one or more for the head, at least one for the
+        # size that is missing.
+        if len(nums) < 2:
+            return []
+
+        # Both guards exist because a control caught this function answering
+        # where it must not. `100x100 SHS` reaches here with two numbers and no
+        # size at all -- the equal pair IS the head -- so the number count alone
+        # does not separate the two cases.
+        if self.ambiguous_candidates(raw):
+            return []
+        # And a notation the library resolves has no gap to report:
+        # `SHS100*100*6.0` resolves, and an unguarded version named six sections.
+        # evidence-ok: only whether a gap exists is asked here; the caller holds
+        # `how` from its own resolve() call.
+        section, _how = self.resolve(raw)
+        if section is not None:
+            return []
+
+        # The head is everything but the trailing size, with the same equal-pair
+        # collapse `ambiguous_candidates()` makes: `100x100x6.5 SHS` is filed
+        # under the `100SHS` family.
+        head_nums = nums[:-1]
+        heads = ["X".join(head_nums)]
+        if len(head_nums) == 2 and head_nums[0] == head_nums[1]:
+            heads.append(head_nums[0])
+        for head in heads:
+            family = self._family(head, kind)
+            if family:
+                return [section for _size, section
+                        in sorted(family, key=lambda pair: pair[0])]
+        return []
+
+
 
 @functools.lru_cache(maxsize=1)
 def library() -> SectionLibrary:
@@ -1417,61 +1536,16 @@ def family_first_reading(raw: str) -> FamilyFirstReading | None:
 
 
 def ambiguous_candidates(raw: str) -> list[Section]:
-    """When `resolve()` comes back `unresolved` for a bare depth with no size
-    given (`250UB`, not `250UB37`) and the library carries more than one
-    section at that depth, the sections it could have meant.
+    """`SectionLibrary.ambiguous_candidates` on the packaged snapshot,
+    `library()`. A caller holding its own library (a workbook run) calls the
+    method on that library instead."""
+    return library().ambiguous_candidates(raw)
 
-    `250UB` alone is genuinely three commercial sizes (`250UB26`/`31`/`37`)
-    -- the drawing hasn't chosen between them, and treating a bare miss the
-    same as a real gap loses that distinction. A caller can put the real
-    choice in front of an estimator instead of a flat "unresolved". Empty
-    whenever the notation doesn't even name a recognised type, or already
-    carries a size (a genuine miss at that point, not an ambiguity).
-    """
-    text = str(raw or "").upper().replace("×", " X ")
-    kind = next((tok for pat, tok in _TYPE_WORDS if re.search(pat, text)), None)
-    if kind is None:
-        return []
-    nums = [_trim(n) for n in _NUM.findall(text)]
-    if not nums:
-        return []
 
-    # A section's head is not always one number. `250UB` is depth alone, but
-    # `250x150 RHS` and `65x50 UA` name a two-number head and are just as
-    # ambiguous without a wall or leg thickness -- and RHS, SHS and UA between
-    # them are a large share of any real pack.
-    #
-    # This used to require exactly one number, so every two-number family came
-    # back unresolved with NO candidates named: the estimator got "unresolved"
-    # and no way to raise a useful RFI, on the most common ambiguity there is.
-    # Found by scripts/permute_packs.py.
-    #
-    # The rule is unchanged in substance: candidates are named only when the
-    # notation consumes ALL its numbers in the head, i.e. no size was given.
-    # A notation carrying a size that still misses is a genuine miss, not an
-    # ambiguity, and must stay empty.
-    heads = ["X".join(nums)]
-    if len(nums) == 2 and nums[0] == nums[1]:
-        # A square hollow section is written `100x100 SHS` on drawings and
-        # filed `100SHS5` in the library -- resolve() already collapses the
-        # equal pair for `100x100x5 SHS`, so candidate naming must too.
-        heads.append(nums[0])
-    lib = library()
-    for head in heads:
-        family = lib._family(head, kind)
-        # One candidate counts. `100TFB` had exactly one section at that depth
-        # (`100TFB45`), and a two-or-more threshold turned the easiest case in
-        # the library into a blank: unresolved, with nothing named, when there
-        # was precisely one thing it could have meant.
-        #
-        # It is still not resolved automatically, and that is deliberate --
-        # naming the one candidate lets an estimator settle it in a second;
-        # picking it silently would be the library guessing, which CLAUDE.md
-        # rules out.
-        if family:
-            return [section for _size, section
-                    in sorted(family, key=lambda pair: pair[0])]
-    return []
+def absent_size_candidates(raw: str) -> list[Section]:
+    """`SectionLibrary.absent_size_candidates` on the packaged snapshot,
+    `library()`. A caller holding its own library calls the method."""
+    return library().absent_size_candidates(raw)
 
 
 # The nominal diameter inside a metric thread designation. `_SHAPE_MODIFIER`

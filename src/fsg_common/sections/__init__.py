@@ -17,6 +17,11 @@ working.
   out.
 - `ambiguous_candidates` -- what `250UB` could have meant, when it resolves
   to nothing because the drawing never chose.
+- `absent_size_candidates` -- for `BT100*11`, a size the library does not
+  carry, what it does carry at that head. Never the answer.
+- Both are methods on `SectionLibrary` (fsg-common#80), so a library built
+  from a live workbook names the workbook's rows; the free functions are
+  wrappers over `library()`, the packaged snapshot.
 - `shape_modifier_candidates` -- for a `shape-modifier` refusal, the plain
   section that was ruled out. The anchor, never the answer.
 - `family_first_reading` -- what `UB150x75x14` was read as, and the reason
@@ -61,6 +66,7 @@ from ._resolver import (  # noqa: F401 - see the note below
     FamilyFirstReading,
     SectionLibrary,
     _looks_like_mark,
+    absent_size_candidates,
     ambiguous_candidates,
     canonical_candidates,
     cold_formed,
@@ -103,7 +109,8 @@ from ._snapshot import (
 
 __all__ = [
     "FamilyFirstReading", "Section", "SectionLibrary",
-    "ambiguous_candidates", "canonical_candidates", "cold_formed",
+    "absent_size_candidates", "ambiguous_candidates", "canonical_candidates",
+    "cold_formed",
     "family_first_reading", "library", "loose_key", "mark_only_reason",
     "mass_of", "resolve",
     "shape_modifier", "shape_modifier_candidates", "split_member_tag",
