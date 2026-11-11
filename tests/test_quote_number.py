@@ -100,6 +100,57 @@ def test_glued_revision_reads_only_when_asked():
     assert _ok("FSG-99Q-901", glued_revision=True).revision is None
 
 
+# --- Spellings live code already accepts (checker on PR #86) -----------------
+# Each was read by an existing parser in a sibling repo before this module, so
+# refusing it would drop real register rows when those repos move over.
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "FSG-99Q- 009",  # a stray space typed after the separator
+        "FSG - 99Q - 009",  # spaces around both hyphens
+        "FSG-99 Q-009",  # a space between the year and the Q
+        "FSG-99Q-0009",  # a fourth digit that is only a leading zero
+        "FSG-99Q-00009",
+        "FSF-99-009",  # older register sheets leave out the Q
+    ],
+)
+def test_live_spacing_and_padding_shapes_read(raw):
+    q = _ok(raw)
+    assert (q.series, q.year, q.number, q.revision) == ("FSG", 2099, 9, None)
+    assert q.base() == "FSG-99Q-009"
+    assert q.raw == raw
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["FSG-99Q-009 / A", "FSG-99Q-009 /A", "FSG-99Q-009- A", "FSG-99Q-009 - a", "FSG-99Q-009  A",
+     "FSG - 99Q - 009 / A", "FSG-99Q-009/A  "],
+)
+def test_spaces_around_the_revision_separator_read(raw):
+    q = _ok(raw)
+    assert q.revision == "A"
+    assert q.full() == "FSG-99Q-009-A"
+
+
+def test_spacing_is_normalised_for_pb_too():
+    assert _ok("PB99 - 009 / B").full() == "PB99-009-B"
+
+
+def test_leading_zeros_do_not_hide_a_fourth_real_digit():
+    # The control on the padding rule: 0009 reads, 1009 is still open question 1.
+    r = _refused("FSG-99Q-01009")
+    assert "4 digits" in r.reason and "open question" in r.reason
+
+
+def test_a_word_after_the_number_is_not_a_revision():
+    # Folder names write the client after the number. A word is never read as
+    # a revision, and a two-letter tail is still open question 2.
+    assert "word after the number" in _refused("FSG-99Q-009 Somename").reason
+    assert "open question" in _refused("FSG-99Q-009 XY").reason
+
+
 # --- An absent or malformed input refuses, with a reason ---------------------
 
 
@@ -119,7 +170,7 @@ def test_non_text_refuses(raw):
     [
         ("XYZ-99Q-901", "prefix"),
         ("99Q-901", "prefix"),  # a bare number needs a caller that knows the series
-        ("FSG-99-901", "Q"),
+        ("FSG-99X-901", "Q"),
         ("FSG-9Q-901", "year"),
         ("FSG-99Q-", "number"),
         ("FSG-99Q-ABC", "number"),

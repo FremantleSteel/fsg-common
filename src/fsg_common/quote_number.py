@@ -13,9 +13,15 @@ What it reads:
 
 - The prefix in any case. ``FSF`` (any case) reads as FSG: the register
   spells it that way in many rows.
-- A number of 1 to 3 digits, leading zeros or not. Output pads to 3.
-- A revision after ``-``, ``/`` or one space, in either case. Output always
+- A number of 1 to 3 significant digits, with any number of leading zeros
+  (``0042`` is 42). Output pads to 3.
+- A revision after ``-``, ``/`` or a space, in either case. Output always
   writes ``-`` (the owner's decision of 1 Oct 2026).
+- The spacing hand-typed register rows carry, which code in the sibling repos
+  already read: spaces around a ``-`` or ``/`` (``FSG - 99Q - 042 / A``), a
+  space between the year and the Q (``99 Q``), and runs of spaces. Spacing is
+  normalised first; it never changes the parts.
+- A FSG number with no Q (``FSF-99-042``): older register sheets write it so.
 - A revision glued to the number (``FSG-99Q-042A``) only when the caller
   passes ``glued_revision=True``, which is for file names. Anywhere else a
   glued letter cannot be told from a typo, so it refuses.
@@ -25,8 +31,11 @@ What it refuses, each with the reason in ``NotAQuoteNumber.reason``:
 - No value, blank, or not text.
 - Anything that is not a whole quote number. This matches the whole value;
   it does not search inside a sentence.
-- A number of zero, or of 4 or more digits. Whether an older 4-digit number
-  is a quote is open question 1 on crm#2814; the mint stops at 999.
+- A number of zero, or of 4 or more significant digits. Whether an older
+  4-digit number is a quote is open question 1 on crm#2814; the mint stops at
+  999.
+- A word after the number and a space (a folder name writes the client
+  there): a word is not a revision, and the whole value is not a quote number.
 - A revision of digits, or of 2 or more letters. Both are open question 2 on
   crm#2814. One letter is the mint's spelling.
 
@@ -41,6 +50,7 @@ Standard library only.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -52,6 +62,9 @@ _MAX_NUMBER_DIGITS = 3
 _MAX_REVISION_LETTERS = 1
 _ASCII_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _ASCII_DIGITS = "0123456789"
+_SPACE_RUN = re.compile(r"\s+")
+_SPACE_AROUND_SEPARATOR = re.compile(r" ?([-/]) ?")
+_SPACE_BEFORE_Q = re.compile(r"(?<=[0-9]) (?=Q)")
 
 
 @dataclass(frozen=True)
@@ -111,7 +124,9 @@ def parse_quote_number(
         return refuse("empty: the value is blank")
     if not text.isascii():
         return refuse("holds characters outside plain ASCII")
-    upper = text.upper()
+    upper = _SPACE_RUN.sub(" ", text.upper())
+    upper = _SPACE_AROUND_SEPARATOR.sub(r"\1", upper)
+    upper = _SPACE_BEFORE_Q.sub("", upper)
 
     if upper.startswith("PB"):
         series: Series = "PB"
@@ -133,11 +148,12 @@ def parse_quote_number(
         if len(year_text) != 2:
             return refuse(f"year is not two digits (read {year_text!r})")
         rest = rest[2:]
-        if not rest.startswith("Q"):
-            return refuse("no Q after the year")
-        rest = rest[1:]
-        if not rest.startswith("-"):
-            return refuse("no hyphen after the Q")
+        if rest.startswith("Q"):
+            rest = rest[1:]
+            if not rest.startswith("-"):
+                return refuse("no hyphen after the Q")
+        elif not rest.startswith("-"):
+            return refuse("no Q or hyphen after the year")
         rest = rest[1:]
     else:
         return refuse("no FSG, FSF or PB prefix at the start")
@@ -145,9 +161,10 @@ def parse_quote_number(
     number_text = _digits(rest)
     if not number_text:
         return refuse("no number after the year")
-    if len(number_text) > _MAX_NUMBER_DIGITS:
+    significant = number_text.lstrip("0")
+    if len(significant) > _MAX_NUMBER_DIGITS:
         return refuse(
-            f"number has {len(number_text)} digits; the mint stops at 999 and whether a "
+            f"number has {len(significant)} digits; the mint stops at 999 and whether a "
             "longer number is a quote is an open question (crm#2814 question 1)"
         )
     number = int(number_text)
@@ -159,6 +176,10 @@ def parse_quote_number(
     if tail:
         if tail[0] in _REVISION_SEPARATORS:
             revision = tail[1:]
+            if tail[0] == " " and (len(revision) > 2 or " " in revision):
+                # A folder name writes the client after the number. That is a
+                # word, not a revision, and the value is not a quote number.
+                return refuse(f"a word after the number is not a revision: {revision!r}")
         elif tail[0] in _ASCII_LETTERS and glued_revision:
             revision = tail
         elif tail[0] in _ASCII_LETTERS:
