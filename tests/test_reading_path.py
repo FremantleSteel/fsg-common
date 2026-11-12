@@ -318,5 +318,104 @@ class LiveMeasurement(unittest.TestCase):
         self.assertLess(total, 100_000)
 
 
+class TheTokenGoesOnlyToTheApiHost(unittest.TestCase):
+    """crm#3258: the token is sent only to `API`'s host, and a redirect to
+    anywhere else is refused, not followed. Two local servers stand in for
+    the API and for somewhere else; each records the Authorization header of
+    every request it receives."""
+
+    TOKEN = "test-token-not-a-secret"
+
+    @classmethod
+    def setUpClass(cls):
+        import http.server
+        import threading
+
+        def server(routes, seen):
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    seen.append((self.path, self.headers.get("Authorization")))
+                    status, location, body = routes(self.path, self.headers.get("Authorization"))
+                    self.send_response(status)
+                    if location:
+                        self.send_header("Location", location)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+                def log_message(self, *args):
+                    pass
+
+            srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            return srv
+
+        cls.elsewhere_seen: list = []
+        cls.api_seen: list = []
+        cls.elsewhere = server(lambda path, auth: (200, None, b"elsewhere"), cls.elsewhere_seen)
+        # `localhost`, not `127.0.0.1`: a different host name as well as a port.
+        cls.elsewhere_url = f"http://localhost:{cls.elsewhere.server_port}"
+
+        def api_routes(path, auth):
+            if path == "/away" or path.startswith("/repos/"):
+                return 302, f"{cls.elsewhere_url}/stolen", b""
+            if path == "/moved":
+                return 301, "/here", b""
+            if path == "/here":
+                return 200, None, b"ok" if auth == f"Bearer {cls.TOKEN}" else b"no token"
+            return 404, None, b""
+
+        cls.api = server(api_routes, cls.api_seen)
+        cls.api_url = f"http://127.0.0.1:{cls.api.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        for srv in (cls.api, cls.elsewhere):
+            srv.shutdown()
+            srv.server_close()
+
+    def setUp(self):
+        self.elsewhere_seen.clear()
+        self.api_seen.clear()
+        patcher = mock.patch.object(rp, "API", self.api_url)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_redirect_to_another_host_is_refused_and_the_token_never_leaves(self):
+        with self.assertRaises(rp.Unavailable) as caught:
+            rp._get(f"{self.api_url}/away", self.TOKEN)
+        self.assertIn("refused a redirect (HTTP 302)", str(caught.exception))
+        self.assertIn("localhost", str(caught.exception))
+        self.assertNotIn(self.TOKEN, str(caught.exception))
+        self.assertEqual(self.elsewhere_seen, [])
+        self.assertEqual(len(self.api_seen), 1, "refused at once, not retried")
+
+    def test_a_redirect_on_the_same_host_is_followed_with_the_token(self):
+        # The control: the same opener still follows a redirect, and still
+        # sends the token, when the redirect stays on the API's host.
+        self.assertEqual(rp._get(f"{self.api_url}/moved", self.TOKEN), b"ok")
+        self.assertEqual([p for p, _ in self.api_seen], ["/moved", "/here"])
+
+    def test_a_url_on_another_host_is_refused_before_any_request(self):
+        with self.assertRaises(rp.Unavailable) as caught:
+            rp._get(f"{self.elsewhere_url}/x", self.TOKEN)
+        self.assertIn("refused to send the token", str(caught.exception))
+        self.assertEqual(self.elsewhere_seen, [])
+
+    def test_read_via_api_passes_the_refusal_on_as_unavailable(self):
+        with self.assertRaises(rp.Unavailable) as caught:
+            rp.read_via_api("some-repo", "CLAUDE.md", self.TOKEN)
+        self.assertIn("refused a redirect", str(caught.exception))
+        self.assertEqual(self.elsewhere_seen, [])
+
+    def test_origin_fills_in_the_default_port_and_keeps_the_scheme(self):
+        self.assertEqual(rp._origin("https://API.github.com/a"),
+                         rp._origin("https://api.github.com:443/b"))
+        self.assertNotEqual(rp._origin("https://api.github.com/a"),
+                            rp._origin("http://api.github.com/a"))
+        self.assertNotEqual(rp._origin("https://api.github.com/a"),
+                            rp._origin("https://api.github.com.example/a"))
+
+
 if __name__ == "__main__":
     unittest.main()
