@@ -44,7 +44,9 @@ Three rules, and how each fails:
    a body's `owner/repo#N` or a `/pull/N` URL can satisfy the body regex yet
    resolve to nothing here, and only its own field catches that.
 2. The body plus the first comment is under 400 words. The first comment
-   counts because that is where a long body goes to hide.
+   counts because that is where a long body goes to hide. A recorded security
+   review (first line starts `# fsg-security-review:` or `fsg-security-review`)
+   does not count, and the first ordinary comment after it does (tr#1676).
 3. Neither the body nor the first comment carries a "Co-Authored-By" trailer
    or a "Generated with" line -- David's rule, all five repos, 16 Sep 2026:
    no commit, pull request or document carries an attribution line.
@@ -247,15 +249,37 @@ def closing_issue_numbers(refs_json: str) -> list[int]:
     return numbers
 
 
+def is_security_review(text: str | None) -> bool:
+    """True when the comment's first non-blank line starts `# fsg-security-review:`
+    or `fsg-security-review` (tr#1676). The coordinator records the review of a
+    PR as a comment, and 257 words of it on top of a 362-word body turned tr
+    PR 1654 red (619 words). The rule-2 reason -- a long body hides in the first
+    comment -- does not apply to a recorded review, so it is not counted. Only
+    the START of the first non-blank line counts: a comment that merely mentions
+    the phrase is an ordinary comment and is still counted."""
+    for line in (text or "").splitlines():
+        if line.strip():
+            return re.match(r"\s*(?:#+\s*)?fsg-security-review", line, re.IGNORECASE) is not None
+    return False
+
+
 def first_comment_body(comments_json: str) -> str | None:
-    """The body of the earliest issue comment in a `gh api .../comments`
-    listing, or None when the listing is empty. Raises on anything else."""
+    """The body of the earliest ordinary issue comment in a `gh api
+    .../comments` listing -- recorded security reviews (`is_security_review`)
+    are skipped -- or None when there is none. Raises on anything else, so an
+    unreadable listing is never read as `no comment`."""
     data = json.loads(comments_json)
     if not isinstance(data, list):
         raise ValueError(f"expected a JSON list of comments, got {type(data).__name__}")
-    if not data:
-        return None
-    return data[0].get("body") or ""
+    for entry in data:
+        if not isinstance(entry, dict):
+            raise ValueError(f"expected each comment to be an object, got {type(entry).__name__}")
+        body = entry.get("body") or ""
+        if not isinstance(body, str):
+            raise ValueError(f"expected a comment body to be text, got {type(body).__name__}")
+        if not is_security_review(body):
+            return body
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
