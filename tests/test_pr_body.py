@@ -275,6 +275,61 @@ class TheFirstComment(unittest.TestCase):
             cpb.first_comment_body(json.dumps({"message": "Not Found"}))
 
 
+class TheSecurityReviewComment(unittest.TestCase):
+    """tr#1676: a recorded security review is not where a long body hides.
+    A PR whose first comment is that review went red on word count alone."""
+
+    REVIEW = "# fsg-security-review: PR 1654\n\n" + " ".join(["finding"] * 257)
+    ORDINARY = "Notes on this change.\n\n" + " ".join(["word"] * 257)
+
+    def _listing(self, *bodies):
+        return json.dumps([{"body": b} for b in bodies])
+
+    def test_a_long_review_first_comment_passes(self):
+        first = cpb.first_comment_body(self._listing(self.REVIEW))
+        self.assertEqual(cpb.check(" ".join(["w"] * 362) + "\nCloses #1", first, "dkagi"), [])
+
+    def test_the_bare_form_and_leading_blank_lines_are_a_review_too(self):
+        for text in ("fsg-security-review: PR 9\nx", "\n\n  # fsg-security-review: PR 9\nx",
+                     "#fsg-security-review: PR 9\nx"):
+            self.assertIsNone(cpb.first_comment_body(self._listing(text)), text)
+
+    def test_a_long_ordinary_first_comment_still_fails(self):
+        first = cpb.first_comment_body(self._listing(self.ORDINARY))
+        problems = cpb.check(" ".join(["w"] * 362) + "\nCloses #1", first, "dkagi")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("first comment 261", problems[0])
+
+    def test_the_first_non_review_comment_is_counted(self):
+        first = cpb.first_comment_body(self._listing(self.REVIEW, self.ORDINARY))
+        self.assertEqual(first, self.ORDINARY)
+
+    def test_a_mention_of_the_review_is_not_a_review(self):
+        text = "See the fsg-security-review: below.\n" + " ".join(["w"] * 50)
+        self.assertEqual(cpb.first_comment_body(self._listing(text)), text)
+
+    def test_only_reviews_means_no_comment(self):
+        self.assertIsNone(cpb.first_comment_body(self._listing(self.REVIEW, self.REVIEW)))
+
+    def test_an_attribution_line_in_the_body_is_still_refused(self):
+        first = cpb.first_comment_body(self._listing("fsg-security-review: x"))
+        self.assertIsNone(first)
+        self.assertTrue(cpb.check("Closes #1\nCo-Authored-By: a", first, "dkagi"))
+
+    def test_a_malformed_entry_is_refused_not_skipped(self):
+        for bad in ('["text"]', '[{"body": 5}]'):
+            with self.assertRaises(ValueError):
+                cpb.first_comment_body(bad)
+
+    def test_a_missing_comments_file_still_cannot_evaluate(self):
+        with tempfile.TemporaryDirectory() as d:
+            event = Path(d) / "e.json"
+            event.write_text(json.dumps(
+                {"pull_request": {"body": SHORT, "user": {"login": "dkagi"}}}), encoding="utf-8")
+            self.assertEqual(cpb.main(["--event", str(event), "--comments",
+                                       str(Path(d) / "none.json")]), 2)
+
+
 class TheCommandLine(unittest.TestCase):
     def _tmp(self, name: str, text: str) -> str:
         path = Path(self.dir.name) / name
