@@ -4,7 +4,7 @@ Each test here is cited by a `# real-gate test: <name>` comment beside a stub
 (guarded by `test_gate_stub_citations.py`). Each refusal has a control that
 clears, so a gate disabled to "always refuse" or "never refuse" fails one.
 
-Only transport is faked: `urllib.request.urlopen`, a `gh` runner, a git
+Only transport is faked: `reading_path._OPENER.open`, a `gh` runner, a git
 subprocess. The decision that turns a bad response into REFUSED is real code.
 """
 from __future__ import annotations
@@ -47,21 +47,21 @@ def _no_sleep():
 
 @pytest.mark.parametrize("code", [401, 403, 404, 500])
 def test_read_via_api_http_error_is_unavailable(code):
-    with mock.patch.object(urllib.request, "urlopen", side_effect=_http(code)):
+    with mock.patch.object(rp._OPENER, "open", side_effect=_http(code)):
         with pytest.raises(rp.Unavailable) as e:
             rp.read_via_api("fsg-estimating-crm", "CLAUDE.md", "tok")
     assert str(code) in str(e.value)
 
 
 def test_read_via_api_unreachable_is_unavailable():
-    with mock.patch.object(urllib.request, "urlopen",
+    with mock.patch.object(rp._OPENER, "open",
                            side_effect=urllib.error.URLError("down")):
         with pytest.raises(rp.Unavailable):
             rp.read_via_api("r", "CLAUDE.md", "tok")
 
 
 def test_read_via_api_control_returns_the_text():
-    with mock.patch.object(urllib.request, "urlopen",
+    with mock.patch.object(rp._OPENER, "open",
                            return_value=_Resp(b"one two three")):
         assert rp.read_via_api("r", "CLAUDE.md", "tok") == "one two three"
 
@@ -75,7 +75,7 @@ def test_a_transient_5xx_is_retried_once_but_a_404_is_not():
             raise _http(503)
         return _Resp(b"a b")
 
-    with mock.patch.object(urllib.request, "urlopen", side_effect=flaky):
+    with mock.patch.object(rp._OPENER, "open", side_effect=flaky):
         assert rp.read_via_api("r", "CLAUDE.md", "tok") == "a b"
     assert len(calls) == 2
     calls.clear()
@@ -84,7 +84,7 @@ def test_a_transient_5xx_is_retried_once_but_a_404_is_not():
         calls.append(1)
         raise _http(404)
 
-    with mock.patch.object(urllib.request, "urlopen", side_effect=not_found):
+    with mock.patch.object(rp._OPENER, "open", side_effect=not_found):
         with pytest.raises(rp.Unavailable):
             rp.read_via_api("r", "CLAUDE.md", "tok")
     assert len(calls) == 1
@@ -93,9 +93,9 @@ def test_a_transient_5xx_is_retried_once_but_a_404_is_not():
 def _main_with_api(side_effect_or_return, tmp_path, capsys):
     (tmp_path / "CLAUDE.md").write_text("w " * 10, encoding="utf-8")
     env = {"FSG_COMMON_PAT": "tok"}
-    patch = (mock.patch.object(urllib.request, "urlopen", side_effect=side_effect_or_return)
+    patch = (mock.patch.object(rp._OPENER, "open", side_effect=side_effect_or_return)
              if callable(side_effect_or_return) or isinstance(side_effect_or_return, Exception)
-             else mock.patch.object(urllib.request, "urlopen", return_value=side_effect_or_return))
+             else mock.patch.object(rp._OPENER, "open", return_value=side_effect_or_return))
     with mock.patch.dict(os.environ, env), patch:
         code = rp.main("fsg-common", [], repo_root=str(tmp_path))
     return code, capsys.readouterr().out

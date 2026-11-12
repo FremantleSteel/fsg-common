@@ -377,6 +377,7 @@ class TheTokenGoesOnlyToTheApiHost(unittest.TestCase):
     def setUp(self):
         self.elsewhere_seen.clear()
         self.api_seen.clear()
+        # not-a-gate: transport; the API address points at a local server, the gate is real
         patcher = mock.patch.object(rp, "API", self.api_url)
         patcher.start()
         self.addCleanup(patcher.stop)
