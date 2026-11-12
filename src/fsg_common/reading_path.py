@@ -106,6 +106,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 OWNER = "FremantleSteel"
@@ -202,6 +203,35 @@ def local_file_touched_since(
     return result.stdout.strip() != ""
 
 
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """`(scheme, host, port)` of `url`, the port filled in for http/https so
+    `api.github.com` and `api.github.com:443` are the same place."""
+    parts = urllib.parse.urlsplit(url)
+    scheme = parts.scheme.lower()
+    port = parts.port or {"https": 443, "http": 80}.get(scheme)
+    return scheme, (parts.hostname or "").lower(), port
+
+
+class _SameOriginRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to the scheme, host and port the request was
+    sent to (crm#3258). The stock handler copies every header, the token's
+    `Authorization` included, to wherever a redirect points. A redirect
+    elsewhere is refused with the two places named, never followed, and
+    never read as an empty file."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if _origin(newurl) != _origin(req.full_url):
+            fp.close()
+            raise Unavailable(
+                f"refused a redirect (HTTP {code}) from {_origin(req.full_url)[1]} "
+                f"to {_origin(newurl)[1] or repr(newurl)}: the token is sent only to "
+                f"{_origin(API)[1]}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_SameOriginRedirects)
+
+
 def _get(url: str, tok: str, attempts: int = 2) -> bytes:
     """One GET, retried ONCE on a transient fault and never on an answer.
 
@@ -209,7 +239,13 @@ def _get(url: str, tok: str, attempts: int = 2) -> bytes:
     not turn it red for a reason nobody can act on. A 401/403/404 IS an
     answer and raises immediately; only a connection failure, a timeout or a
     5xx is retried.
+
+    The token goes only to `API`'s host (crm#3258): a `url` anywhere else,
+    or a redirect away from it, raises `Unavailable` before the token leaves.
     """
+    if _origin(url) != _origin(API):
+        raise Unavailable(f"refused to send the token to {_origin(url)[1] or repr(url)}: "
+                          f"it is sent only to {_origin(API)[1]}")
     request = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {tok}",
         "Accept": "application/vnd.github.raw",
@@ -218,7 +254,7 @@ def _get(url: str, tok: str, attempts: int = 2) -> bytes:
     })
     for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with _OPENER.open(request, timeout=30) as response:
                 return response.read()
         except urllib.error.HTTPError as exc:
             if exc.code < 500 or attempt == attempts - 1:

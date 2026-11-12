@@ -7,7 +7,6 @@ from __future__ import annotations
 import io
 import json
 import subprocess
-import urllib.request
 from types import SimpleNamespace as R
 from unittest import mock
 
@@ -28,7 +27,7 @@ class _Resp(io.BytesIO):
 
 def test_an_empty_200_from_the_api_is_unreadable_not_zero_words():
     # not-a-gate: transport; measure() runs over the real read_via_api
-    with mock.patch.object(urllib.request, "urlopen", return_value=_Resp(b"")):
+    with mock.patch.object(rp._OPENER, "open", return_value=_Resp(b"")):
         with pytest.raises(rp.Unavailable, match="empty"):
             rp.measure(lambda repo, path: rp.read_via_api(repo, path, "t"),
                        files=(("r", "CLAUDE.md"),))
@@ -36,7 +35,7 @@ def test_an_empty_200_from_the_api_is_unreadable_not_zero_words():
 
 def test_a_nonempty_200_still_counts():
     # not-a-gate: transport; the control for the test above
-    with mock.patch.object(urllib.request, "urlopen", return_value=_Resp(b"a b c")):
+    with mock.patch.object(rp._OPENER, "open", return_value=_Resp(b"a b c")):
         got = rp.measure(lambda repo, path: rp.read_via_api(repo, path, "t"),
                          files=(("r", "CLAUDE.md"),))
     assert got == {("r", "CLAUDE.md"): 3}
