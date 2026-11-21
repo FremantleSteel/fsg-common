@@ -99,6 +99,20 @@ Everything else -- the regex engine, the range machinery, the zero-files
 refusal, the historical-blob fallback -- is this module's, not the
 caller's, so a fix here reaches every repo the next time each bumps its
 `fsg-common.pin`, the same mechanism `sections.py` already uses.
+
+## Client term list (crm#3698)
+
+The checks find SHAPES (an email, a phone number, a secret). They cannot
+know a client's name. A config with `require_term_list=True` makes `run()`
+refuse unless a local term list is named by `--terms PATH` or the
+`FSG_LEAK_TERMS` variable, or `--terms-optional` is given; the run then
+says plainly that client names were NOT checked. A list that is named but
+missing, empty or unreadable refuses in every mode. A match never prints
+the term, only its line number in the list. A term matches as a whole
+word, case-insensitive, and a space in it also matches `_`, `-` and `.`
+(`term_patterns()`). Every email and phone value
+`run()` prints is masked, because a CI log is readable by everyone with
+repo access; `check()` still returns the raw value.
 """
 
 from __future__ import annotations
@@ -297,6 +311,10 @@ class GuardConfig:
     #: because the file's job is to exercise a parser. Secret patterns and the
     #: extension/filename rules still apply to them. Exact paths, never a tree.
     pii_exempt_paths: frozenset[str] = frozenset()
+    #: crm#3698. When True, `run()` refuses unless a client term list is
+    #: named (`--terms PATH` or `FSG_LEAK_TERMS`) or `--terms-optional` is
+    #: given. A list given to any config is always checked.
+    require_term_list: bool = False
 
     @property
     def blocked_extensions(self) -> dict[str, str]:
@@ -773,11 +791,14 @@ def _find_phone_hits(body: str) -> list[tuple[int, str]]:
 def check(paths: list[str], config: GuardConfig,
           path_sources: dict[str, str] | None = None,
           read_content: bool = True,
-          near_misses: list[str] | None = None) -> list[str]:
+          near_misses: list[str] | None = None,
+          terms: list[tuple[int, str]] | None = None) -> list[str]:
     """Blocking problems. `near_misses`, if given and `config.enable_near_
     misses`, is filled with mistyped-AU and non-AU international numbers --
-    reported by the caller, never blocking."""
+    reported by the caller, never blocking. `terms` is `load_terms()`'s
+    result; each path and its content is checked against it."""
     problems: list[str] = []
+    problems.extend(_term_hits(paths, path_sources, read_content, terms))
     for path in paths:
         norm = path.replace("\\", "/")
 
@@ -908,6 +929,142 @@ def _make_output_utf8_safe() -> None:
             pass                          # already detached or not reconfigurable
 
 
+# --- client term list and masked output (crm#3698) -------------------------
+# Moved from fsg-estimating-crm's own script (crm PR 3697, 21 Nov 2026) so
+# every consumer gets the same refusal. FSG_EXCLUSIONS is NOT read: it is the
+# retired exclusion list (crm#2198).
+TERMS_ENV = "FSG_LEAK_TERMS"
+NOT_LOADED = "term list not loaded: nothing was checked"
+
+
+class TermsNotLoaded(Exception):
+    pass
+
+
+def load_terms(path: str) -> list[tuple[int, str]]:
+    """(line number, term) for each term in the file at `path`: one
+    case-insensitive substring per line, '#' lines and blank lines ignored."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        raise TermsNotLoaded("the file it names does not exist") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise TermsNotLoaded(
+            f"the file could not be read ({type(exc).__name__})") from None
+    terms = [(n, line.strip()) for n, line in enumerate(text.splitlines(), start=1)
+             if line.strip() and not line.lstrip().startswith("#")]
+    if not terms:
+        raise TermsNotLoaded("the file holds no terms")
+    return terms
+
+
+def term_patterns(terms: list[str]) -> list[re.Pattern]:
+    """One pattern per term. A term matches as a whole word, case-
+    insensitive: "Acme" finds "ACME_tender" and "acme-quote" but not
+    "acmeist". Spaces in a term also match `_`, `-` and `.`, the way a name
+    turns into a file name. Shared by every repo's guard (crm#3698)."""
+    patterns = []
+    for term in terms:
+        body = r"[\s_.\-]+".join(re.escape(part) for part in term.split())
+        patterns.append(re.compile(
+            rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.I))
+    return patterns
+
+
+def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
+               read_content: bool,
+               terms: list[tuple[int, str]] | None) -> list[str]:
+    # Matched here, not as extra secret patterns: the secret scan skips any
+    # hit that looks like a placeholder, and a client name is never skipped.
+    # Allowed paths and skipped extensions are checked too, on purpose.
+    terms = terms or []
+    path_rx = list(zip((n for n, _ in terms), term_patterns([t for _, t in terms]),
+                       strict=True))
+    problems: list[str] = []
+    for path in paths if path_rx else ():
+        norm = path.replace("\\", "/")
+        for n, rx in path_rx:
+            if rx.search(norm):
+                problems.append(f"{norm}: file path holds a client term "
+                                f"(line {n} of the term list)")
+                break
+        if not read_content:
+            continue
+        body, _err = _read_body(path, path_sources)
+        if body is None:
+            continue          # the main check reports the unreadable file
+        for n, rx in path_rx:
+            hit = rx.search(body)
+            if hit:
+                line = body.count("\n", 0, hit.start()) + 1
+                problems.append(f"{norm}:{line}: client term "
+                                f"(line {n} of the term list)")
+    return problems
+
+
+# The value is always the last thing in the message, so each pattern takes
+# everything up to the message's final ")" (or its end). A value can hold
+# brackets itself, `(08) 9000 0000` or `+61 (0)8 ...`.
+_MASKED_VALUE_RES = (
+    re.compile(r"(customer email address \()(.*)(\))$"),
+    re.compile(r"(Australian phone number \()(.*)(\))$"),
+    re.compile(r"(looks like a mistyped AU number \()(.*)(\))$"),
+    re.compile(r"(non-AU international number )(\S.*)()$"),
+)
+
+
+def mask_value(value: str) -> str:
+    """Enough to find the line again, not enough to contact the person:
+    an email keeps its first character and the part after the last dot,
+    a number keeps its last two digits."""
+    if "@" in value:
+        local, _, domain = value.partition("@")
+        tld = domain.rsplit(".", 1)[-1] if "." in domain else ""
+        return f"{local[:1]}***@***.{tld}" if tld else f"{local[:1]}***@***"
+    digits = [i for i, c in enumerate(value) if c.isdigit()]
+    keep = set(digits[-2:])
+    return "".join("*" if c.isdigit() and i not in keep else c
+                   for i, c in enumerate(value))
+
+
+def mask_message(msg: str) -> str:
+    """A guard message with its email or phone value masked."""
+    for rx in _MASKED_VALUE_RES:
+        msg = rx.sub(lambda m: m.group(1) + mask_value(m.group(2)) + m.group(3), msg)
+    return msg
+
+
+def _load_terms_for_run(args, config: GuardConfig):
+    """(terms or None, exit code or None). A code means: stop with it.
+
+    A config that does not ask for a list never reads TERMS_ENV here:
+    fsg-common's own script reads it itself, with its own rules."""
+    if args.terms is None and not config.require_term_list:
+        return None, None
+    source = "--terms" if args.terms is not None else TERMS_ENV
+    path = args.terms if args.terms is not None else (os.environ.get(TERMS_ENV) or None)
+    if path is None:
+        if not args.terms_optional:
+            print(f"REFUSED. {NOT_LOADED}.", file=sys.stderr)
+            print(f"  Give --terms PATH or set {TERMS_ENV} to the local client "
+                  "term list. FSG_EXCLUSIONS is the retired exclusion list and "
+                  "is not read.", file=sys.stderr)
+            print("  Without a list this guard cannot see a client's name, so "
+                  "a clean result would mean nothing.", file=sys.stderr)
+            return None, 2
+        print(f"WARNING -- {TERMS_ENV} not set and no --terms given: client "
+              "names were NOT checked. Only emails, phone numbers, secrets "
+              "and file types were.", file=sys.stderr)
+        return None, None
+    try:
+        return load_terms(path), None
+    except TermsNotLoaded as exc:
+        print(f"REFUSED. {NOT_LOADED}: {source} was given but {exc}.",
+              file=sys.stderr)
+        return None, 2
+
+
 def run(argv: list[str] | None, config: GuardConfig, *,
         staged=None, tracked=None) -> int:
     """`staged` / `tracked` let a caller supply its own file-list functions,
@@ -921,7 +1078,14 @@ def run(argv: list[str] | None, config: GuardConfig, *,
     ap.add_argument("--files", nargs="*", help="check these paths explicitly")
     ap.add_argument("--all", action="store_true",
                     help="check every tracked file (CI mode)")
+    ap.add_argument("--terms", default=None,
+                    help=f"local client term list (else {TERMS_ENV})")
+    ap.add_argument("--terms-optional", action="store_true",
+                    help="run without a term list, saying names were NOT checked")
     args = ap.parse_args(argv)
+    terms, stop = _load_terms_for_run(args, config)
+    if stop is not None:
+        return stop
 
     path_sources: dict[str, str] | None = None
     if args.files:
@@ -985,8 +1149,10 @@ def run(argv: list[str] | None, config: GuardConfig, *,
         return 2
 
     near_misses: list[str] = []
-    problems = check(paths, config, path_sources=path_sources,
-                     near_misses=near_misses)
+    problems = [mask_message(p) for p in
+                check(paths, config, path_sources=path_sources,
+                      near_misses=near_misses, terms=terms)]
+    near_misses[:] = [mask_message(m) for m in near_misses]
 
     def _report_near_misses() -> None:
         # After the verdict, never folded into it: a near-miss is worth a
@@ -1004,6 +1170,8 @@ def run(argv: list[str] | None, config: GuardConfig, *,
 
     if not problems:
         print(f"ok -- {len(paths)} file(s) checked, nothing blocked")
+        if terms:
+            print(f"  client names checked against {len(terms)} term(s)")
         _report_near_misses()
         return 0
 
