@@ -266,4 +266,5 @@ def test_env_names_follow_the_owners_choice_of_21_nov():
 def test_the_old_path_name_still_loads_the_list(tmp_path):
     f = tmp_path / "terms.txt"
     f.write_text("Quillmore\n", encoding="utf-8")
-    assert guard.load_terms({guard.LEGACY_FILE_ENV: str(f)}, repo_root=tmp_path / "repo") == ["Quillmore"]
+    loaded = guard.load_terms({guard.LEGACY_FILE_ENV: str(f)}, repo_root=tmp_path / "repo")
+    assert loaded == ["Quillmore"]

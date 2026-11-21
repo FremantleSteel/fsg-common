@@ -979,7 +979,8 @@ def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
     # hit that looks like a placeholder, and a client name is never skipped.
     # Allowed paths and skipped extensions are checked too, on purpose.
     terms = terms or []
-    path_rx = list(zip((n for n, _ in terms), term_patterns([t for _, t in terms])))
+    path_rx = list(zip((n for n, _ in terms), term_patterns([t for _, t in terms]),
+                       strict=True))
     problems: list[str] = []
     for path in paths if path_rx else ():
         norm = path.replace("\\", "/")
