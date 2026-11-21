@@ -53,7 +53,9 @@ jobs:
         # not run. `.githooks/pre-commit` runs the same script locally.
         if: '!cancelled()'
         env:
-          FSG_LEAK_TERMS: ${{ secrets.FSG_LEAK_TERMS }}
+          # crm#3698: the secret holds the terms themselves, so it goes in
+          # FSG_LEAK_TERMS_TEXT; FSG_LEAK_TERMS is a file path in every repo.
+          FSG_LEAK_TERMS_TEXT: ${{ secrets.FSG_LEAK_TERMS }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="${{ github.event.pull_request.base.sha }}..${{ github.sha }}"

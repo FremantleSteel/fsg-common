@@ -202,3 +202,24 @@ def test_check_itself_still_returns_the_raw_value(tmp_path):
     f = tmp_path / "pii.md"
     f.write_text(f"Email: {EMAIL}\n", encoding="utf-8")
     assert any(EMAIL in p for p in leak_guard.check([str(f)], LOOSE))
+
+
+# --- whole-word matching, the same in every repo (owner's choice, 21 Nov) --
+
+@pytest.mark.parametrize("text,blocks", [
+    ("QUILLMORE_tender.md", True),
+    ("quillmore-quote", True),
+    ("Quillmoreish notes", False),
+])
+def test_a_term_matches_as_a_whole_word(tmp_path, text, blocks):
+    lst = tmp_path / "terms.txt"
+    lst.write_text("Quillmore\n", encoding="utf-8")
+    f = tmp_path / "a.md"
+    f.write_text(text + "\n", encoding="utf-8")
+    assert (_run(["--terms", str(lst), "--files", str(f)])[0] == 1) is blocks
+
+
+def test_a_space_in_a_term_matches_a_file_name_separator(terms, tmp_path):
+    f = tmp_path / "a.md"
+    f.write_text("see zorbex_pty-ltd.xlsx\n", encoding="utf-8")
+    assert _run(["--terms", str(terms), "--files", str(f)])[0] == 1

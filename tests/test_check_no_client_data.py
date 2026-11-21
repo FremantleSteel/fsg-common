@@ -38,7 +38,8 @@ def _git(cwd: Path, *args: str) -> None:
 def _run_hook(repo: Path, env_extra: dict[str, str]) -> subprocess.CompletedProcess:
     """The script as the commit hook runs it: staged files, in a real repo."""
     env = {k: v for k, v in os.environ.items()
-           if k not in (guard.TERMS_FILE_ENV, guard.TERMS_TEXT_ENV)}
+           if k not in (guard.TERMS_FILE_ENV, guard.LEGACY_FILE_ENV,
+                        guard.TERMS_TEXT_ENV)}
     env.update(env_extra)
     return subprocess.run([sys.executable, str(SCRIPT)], cwd=repo, env=env,
                           capture_output=True, text=True)
@@ -186,7 +187,8 @@ def test_this_repo_is_clean_against_the_invented_term():
     holds: the shared half and the term half must both pass here, or the CI
     step would be red on main."""
     env = {k: v for k, v in os.environ.items()
-           if k not in (guard.TERMS_FILE_ENV, guard.TERMS_TEXT_ENV)}
+           if k not in (guard.TERMS_FILE_ENV, guard.LEGACY_FILE_ENV,
+                        guard.TERMS_TEXT_ENV)}
     env[guard.TERMS_TEXT_ENV] = "Quokka " + "Lumber Pty\n"
     out = subprocess.run([sys.executable, str(SCRIPT), "--all"], cwd=REPO,
                          env=env, capture_output=True, text=True)
@@ -251,3 +253,17 @@ def test_range_checks_commit_messages(repo, terms_file):
     assert out.returncode == 1, out.stdout + out.stderr
     assert "holds private term #1" in out.stderr
     _no_term_anywhere(out)
+
+
+def test_env_names_follow_the_owners_choice_of_21_nov():
+    """crm#3698: FSG_LEAK_TERMS is a file path in every repo; the terms
+    themselves have their own name; the old path name still works."""
+    assert guard.TERMS_FILE_ENV == "FSG_LEAK_TERMS"
+    assert guard.TERMS_TEXT_ENV == "FSG_LEAK_TERMS_TEXT"
+    assert guard.LEGACY_FILE_ENV == "FSG_LEAK_TERMS_FILE"
+
+
+def test_the_old_path_name_still_loads_the_list(tmp_path):
+    f = tmp_path / "terms.txt"
+    f.write_text("Quillmore\n", encoding="utf-8")
+    assert guard.load_terms({guard.LEGACY_FILE_ENV: str(f)}, repo_root=tmp_path / "repo") == ["Quillmore"]

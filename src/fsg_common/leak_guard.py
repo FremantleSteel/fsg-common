@@ -108,7 +108,9 @@ refuse unless a local term list is named by `--terms PATH` or the
 `FSG_LEAK_TERMS` variable, or `--terms-optional` is given; the run then
 says plainly that client names were NOT checked. A list that is named but
 missing, empty or unreadable refuses in every mode. A match never prints
-the term, only its line number in the list. Every email and phone value
+the term, only its line number in the list. A term matches as a whole
+word, case-insensitive, and a space in it also matches `_`, `-` and `.`
+(`term_patterns()`). Every email and phone value
 `run()` prints is masked, because a CI log is readable by everyone with
 repo access; `check()` still returns the raw value.
 """
@@ -957,13 +959,27 @@ def load_terms(path: str) -> list[tuple[int, str]]:
     return terms
 
 
+def term_patterns(terms: list[str]) -> list[re.Pattern]:
+    """One pattern per term. A term matches as a whole word, case-
+    insensitive: "Acme" finds "ACME_tender" and "acme-quote" but not
+    "acmeist". Spaces in a term also match `_`, `-` and `.`, the way a name
+    turns into a file name. Shared by every repo's guard (crm#3698)."""
+    patterns = []
+    for term in terms:
+        body = r"[\s_.\-]+".join(re.escape(part) for part in term.split())
+        patterns.append(re.compile(
+            rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.I))
+    return patterns
+
+
 def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
                read_content: bool,
                terms: list[tuple[int, str]] | None) -> list[str]:
     # Matched here, not as extra secret patterns: the secret scan skips any
     # hit that looks like a placeholder, and a client name is never skipped.
     # Allowed paths and skipped extensions are checked too, on purpose.
-    path_rx = [(n, re.compile(re.escape(t), re.IGNORECASE)) for n, t in terms or []]
+    terms = terms or []
+    path_rx = list(zip((n for n, _ in terms), term_patterns([t for _, t in terms])))
     problems: list[str] = []
     for path in paths if path_rx else ():
         norm = path.replace("\\", "/")
@@ -1021,8 +1037,8 @@ def mask_message(msg: str) -> str:
 def _load_terms_for_run(args, config: GuardConfig):
     """(terms or None, exit code or None). A code means: stop with it.
 
-    A config that does not ask for a list never reads TERMS_ENV: this
-    repo's own script uses that name for the terms themselves, not a path."""
+    A config that does not ask for a list never reads TERMS_ENV here:
+    fsg-common's own script reads it itself, with its own rules."""
     if args.terms is None and not config.require_term_list:
         return None, None
     source = "--terms" if args.terms is not None else TERMS_ENV
