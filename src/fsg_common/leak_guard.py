@@ -934,6 +934,9 @@ def _make_output_utf8_safe() -> None:
 # every consumer gets the same refusal. FSG_EXCLUSIONS is NOT read: it is the
 # retired exclusion list (crm#2198).
 TERMS_ENV = "FSG_LEAK_TERMS"
+#: The older name for the same path, still read when TERMS_ENV is not set:
+#: the owner's laptop sets this one (crm#3698 checker, 21 Nov 2026).
+LEGACY_TERMS_ENV = "FSG_LEAK_TERMS_FILE"
 NOT_LOADED = "term list not loaded: nothing was checked"
 
 
@@ -970,6 +973,14 @@ def term_patterns(terms: list[str]) -> list[re.Pattern]:
         patterns.append(re.compile(
             rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.I))
     return patterns
+
+
+def mask_terms(msg: str, patterns: list[re.Pattern]) -> str:
+    """`msg` with every client term in it replaced by `[client term]`. A
+    file path can hold a client's name, and every message names its path."""
+    for rx in patterns:
+        msg = rx.sub("[client term]", msg)
+    return msg
 
 
 def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
@@ -1042,8 +1053,12 @@ def _load_terms_for_run(args, config: GuardConfig):
     fsg-common's own script reads it itself, with its own rules."""
     if args.terms is None and not config.require_term_list:
         return None, None
-    source = "--terms" if args.terms is not None else TERMS_ENV
-    path = args.terms if args.terms is not None else (os.environ.get(TERMS_ENV) or None)
+    source, path = "--terms", args.terms
+    if path is None:
+        for name in (TERMS_ENV, LEGACY_TERMS_ENV):
+            if os.environ.get(name, "").strip():
+                source, path = name, os.environ[name].strip()
+                break
     if path is None:
         if not args.terms_optional:
             print(f"REFUSED. {NOT_LOADED}.", file=sys.stderr)
@@ -1053,7 +1068,8 @@ def _load_terms_for_run(args, config: GuardConfig):
             print("  Without a list this guard cannot see a client's name, so "
                   "a clean result would mean nothing.", file=sys.stderr)
             return None, 2
-        print(f"WARNING -- {TERMS_ENV} not set and no --terms given: client "
+        print(f"WARNING -- {TERMS_ENV} (or {LEGACY_TERMS_ENV}) not set and "
+              "no --terms given: client "
               "names were NOT checked. Only emails, phone numbers, secrets "
               "and file types were.", file=sys.stderr)
         return None, None
@@ -1087,6 +1103,9 @@ def run(argv: list[str] | None, config: GuardConfig, *,
     if stop is not None:
         return stop
 
+    # Every message names a path, and a path can hold a client's name: each
+    # printed line has its terms masked, not only the term-hit lines.
+    term_rx = term_patterns([t for _, t in terms or []])
     path_sources: dict[str, str] | None = None
     if args.files:
         paths = args.files
@@ -1131,7 +1150,8 @@ def run(argv: list[str] | None, config: GuardConfig, *,
             print("ok -- no staged files, so there was nothing to check "
                   "(this is not the same as 0 files being clean)")
             return 0
-        deleted = range_deletions(args.rev_range) if args.rev_range else []
+        deleted = [mask_terms(d, term_rx) for d in
+                   (range_deletions(args.rev_range) if args.rev_range else [])]
         if deleted:
             print(f"ok -- {asked_for} only deletes {len(deleted)} file(s) "
                   f"({', '.join(deleted)}); nothing was added or modified, "
@@ -1149,10 +1169,10 @@ def run(argv: list[str] | None, config: GuardConfig, *,
         return 2
 
     near_misses: list[str] = []
-    problems = [mask_message(p) for p in
+    problems = [mask_terms(mask_message(p), term_rx) for p in
                 check(paths, config, path_sources=path_sources,
                       near_misses=near_misses, terms=terms)]
-    near_misses[:] = [mask_message(m) for m in near_misses]
+    near_misses[:] = [mask_terms(mask_message(m), term_rx) for m in near_misses]
 
     def _report_near_misses() -> None:
         # After the verdict, never folded into it: a near-miss is worth a

@@ -39,6 +39,7 @@ def _run(argv, config=STRICT) -> tuple[int, str]:
 @pytest.fixture(autouse=True)
 def no_env(monkeypatch):
     monkeypatch.delenv(leak_guard.TERMS_ENV, raising=False)
+    monkeypatch.delenv(leak_guard.LEGACY_TERMS_ENV, raising=False)
 
 
 @pytest.fixture
@@ -72,6 +73,41 @@ def test_planted_term_in_the_file_path_blocks(terms, tmp_path):
     code, report = _run(["--terms", str(terms), "--files", str(f)])
     assert code == 1, report
     assert "file path holds a client term (line 3 of the term list)" in report
+    # crm#3698 checker fix 4: the path itself is masked, never printed whole.
+    assert "zorbex" not in report.lower(), report
+    assert "[client term]/notes.bin" in report
+
+
+def test_a_term_in_the_path_is_masked_in_every_message(terms, tmp_path):
+    d = tmp_path / "zorbex_pty_ltd"
+    d.mkdir()
+    f = d / "card.ps1"
+    f.write_text(f"# {TERM}\n# {EMAIL}\n", encoding="utf-8")
+    code, report = _run(["--terms", str(terms), "--files", str(f)])
+    assert code == 1, report
+    assert "customer email address" in report and "client term (line 3" in report
+    assert "zorbex" not in report.lower(), report
+
+
+def test_the_older_variable_name_loads_the_list(monkeypatch, terms, leaky):
+    # crm#3698 checker fix 1: the owner's laptop sets FSG_LEAK_TERMS_FILE.
+    monkeypatch.setenv(leak_guard.LEGACY_TERMS_ENV, str(terms))
+    code, report = _run(["--files", str(leaky)])
+    assert code == 1, report
+    assert "client term (line 3 of the term list)" in report
+
+
+def test_the_current_name_wins_over_the_older_one(monkeypatch, terms, leaky, tmp_path):
+    monkeypatch.setenv(leak_guard.TERMS_ENV, str(terms))
+    monkeypatch.setenv(leak_guard.LEGACY_TERMS_ENV, str(tmp_path / "missing.txt"))
+    assert _run(["--files", str(leaky)])[0] == 1
+
+
+def test_a_broken_older_name_refuses_like_the_current_one(monkeypatch, leaky, tmp_path):
+    monkeypatch.setenv(leak_guard.LEGACY_TERMS_ENV, str(tmp_path / "missing.txt"))
+    code, report = _run(["--terms-optional", "--files", str(leaky)])
+    assert code == 2, report
+    assert leak_guard.LEGACY_TERMS_ENV in report
 
 
 def test_the_env_variable_loads_the_list(monkeypatch, terms, leaky):
