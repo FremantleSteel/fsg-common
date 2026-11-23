@@ -10,9 +10,9 @@ It runs two checks (crm#2813):
    else that must not appear here. The list is never committed: it is read
    from one of two environment variables.
 
-   - `FSG_LEAK_TERMS_FILE`: the path to a text file outside this repo, one
+   - `FSG_LEAK_TERMS`: the path to a text file outside this repo, one
      term per line. Blank lines and lines starting with `#` are ignored.
-   - `FSG_LEAK_TERMS`: the terms themselves, one per line. This is how CI
+   - `FSG_LEAK_TERMS_TEXT`: the terms themselves, one per line. This is how CI
      gets them, from a repository secret of the same name.
 
    Commit messages are checked too: the `commit-msg` hook passes
@@ -50,8 +50,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from fsg_common import leak_guard  # noqa: E402
 
-TERMS_FILE_ENV = "FSG_LEAK_TERMS_FILE"
-TERMS_TEXT_ENV = "FSG_LEAK_TERMS"
+# crm#3698, the owner's choice of 21 Nov 2026: FSG_LEAK_TERMS is the PATH of
+# the term file in every repo; the terms themselves moved to their own name.
+# FSG_LEAK_TERMS_FILE, the old path name, is still read as a path.
+TERMS_FILE_ENV = leak_guard.TERMS_ENV
+LEGACY_FILE_ENV = "FSG_LEAK_TERMS_FILE"
+TERMS_TEXT_ENV = "FSG_LEAK_TERMS_TEXT"
 MIN_TERM_LENGTH = 3
 
 GUARD_CONFIG = leak_guard.GuardConfig(
@@ -103,7 +107,8 @@ def load_terms(environ: dict[str, str] | None = None,
                repo_root: Path | None = None) -> list[str]:
     """The private terms, or `TermsUnavailable` saying why not."""
     env = os.environ if environ is None else environ
-    path_value = env.get(TERMS_FILE_ENV, "").strip()
+    path_value = (env.get(TERMS_FILE_ENV, "").strip()
+                  or env.get(LEGACY_FILE_ENV, "").strip())
     text_value = env.get(TERMS_TEXT_ENV, "")
     if path_value:
         path = Path(path_value).expanduser().resolve()
@@ -126,16 +131,8 @@ def load_terms(environ: dict[str, str] | None = None,
         f"private-term check did not run")
 
 
-def _term_patterns(terms: list[str]) -> list[re.Pattern]:
-    # A term matches as a whole word, case-insensitive: "Acme" finds
-    # "ACME_tender" and "acme-quote" but not "acmeist". Spaces in a term
-    # also match `_`, `-` and `.`, the way a name turns into a file name.
-    patterns = []
-    for term in terms:
-        body = r"[\s_.\-]+".join(re.escape(part) for part in term.split())
-        patterns.append(re.compile(
-            rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.I))
-    return patterns
+# Whole-word matching, shared with the other repos' guards since crm#3698.
+_term_patterns = leak_guard.term_patterns
 
 
 def _mask(text: str, patterns: list[re.Pattern]) -> str:

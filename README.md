@@ -139,9 +139,10 @@ python scripts/check_no_client_data.py --all   # the leak guard
 This repo is public, so the leak guard runs in CI and as a commit hook
 (`git config core.hooksPath .githooks`, once per clone; a `commit-msg` hook
 checks the message too). It also checks a
-private list of names that is never committed: set `FSG_LEAK_TERMS_FILE` to
-a file outside the repo, one name per line. CI reads the `FSG_LEAK_TERMS`
-repository secret. With neither set it refuses rather than passing.
+private list of names that is never committed: set `FSG_LEAK_TERMS` to
+a file outside the repo, one name per line (the older name
+`FSG_LEAK_TERMS_FILE` still works). CI puts the `FSG_LEAK_TERMS` repository
+secret, which holds the names themselves, in `FSG_LEAK_TERMS_TEXT`. With neither set it refuses rather than passing.
 
 `parity_report.py` is not a test. It needs both sibling repos on disk, which
 CI does not have, and it fails loudly rather than skipping when it cannot
