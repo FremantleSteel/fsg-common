@@ -259,3 +259,78 @@ def test_a_space_in_a_term_matches_a_file_name_separator(terms, tmp_path):
     f = tmp_path / "a.md"
     f.write_text("see zorbex_pty-ltd.xlsx\n", encoding="utf-8")
     assert _run(["--terms", str(terms), "--files", str(f)])[0] == 1
+
+
+# --- the guard honours its own allowed-address list (owner's decision, 22 Nov
+# 2026, "Guard honours own list"). A term that is EXACTLY an address on the
+# config's allowed list is not checked: whole term, case-insensitive, never a
+# domain or a part of one. Every address here is made up.
+
+OWN = "fixture.owner@zorbex-fixture.test"
+OWN_CONFIG = leak_guard.GuardConfig(
+    repo_holds="Test repo.", client_data_lives="Elsewhere.",
+    enable_pii=True, require_term_list=True,
+    allowed_email_addresses=frozenset({OWN}))
+
+
+def _own_list(tmp_path, *lines) -> Path:
+    f = tmp_path / "own-terms.txt"
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return f
+
+
+@pytest.mark.parametrize("term", [OWN, OWN.upper(), f"  {OWN}  "])
+def test_a_term_that_is_an_allowed_address_is_not_flagged(tmp_path, term):
+    lst = _own_list(tmp_path, term, TERM)
+    f = tmp_path / "mail-redirect.md"
+    f.write_text(f"test mail goes to {OWN}\n", encoding="utf-8")
+    code, report = _run(["--terms", str(lst), "--files", str(f)], OWN_CONFIG)
+    assert code == 0, report
+    assert "checked against 1 term(s)" in report
+    assert "1 term(s) not checked: each is exactly an address this guard allows" in report
+    assert OWN not in report.lower() and "zorbex" not in report.lower(), report
+
+
+def test_a_planted_term_still_blocks_beside_an_allowed_address(tmp_path, leaky):
+    lst = _own_list(tmp_path, OWN, TERM)
+    leaky.write_text(leaky.read_text(encoding="utf-8") + f"# {OWN}\n", encoding="utf-8")
+    code, report = _run(["--terms", str(lst), "--files", str(leaky)], OWN_CONFIG)
+    assert code == 1, report
+    assert "client term (line 2 of the term list)" in report
+    assert "line 1 of the term list" not in report
+    assert "zorbex" not in report.lower(), report
+
+
+@pytest.mark.parametrize("term", [
+    "zorbex-fixture.test",                    # the allowed address's domain
+    "@zorbex-fixture.test",
+    "fixture.owner",                          # a part of the allowed address
+    "fixture.owner@zorbex-fixture.test.au",   # holds the allowed address
+    "a.fixture.owner@zorbex-fixture.test",
+])
+def test_a_term_that_only_shares_part_of_an_allowed_address_still_blocks(tmp_path, term):
+    lst = _own_list(tmp_path, term)
+    f = tmp_path / "notes.md"
+    f.write_text(f"see {term} here\n", encoding="utf-8")
+    code, report = _run(["--terms", str(lst), "--files", str(f)], OWN_CONFIG)
+    assert code == 1, report
+    assert "client term (line 1 of the term list)" in report
+    assert "zorbex" not in report.lower(), report
+
+
+def test_a_list_of_only_allowed_addresses_refuses(tmp_path, leaky):
+    # Nothing would be checked, the same as an empty list.
+    lst = _own_list(tmp_path, OWN)
+    code, report = _run(["--terms", str(lst), "--terms-optional", "--files", str(leaky)],
+                        OWN_CONFIG)
+    assert code == 2, report
+    assert leak_guard.NOT_LOADED in report
+    assert "zorbex" not in report.lower(), report
+
+
+def test_check_skips_an_allowed_address_term_too(tmp_path):
+    # The exemption sits where terms are compared, so `check()` callers get it.
+    f = tmp_path / "a.md"
+    f.write_text(f"{OWN}\n", encoding="utf-8")
+    assert leak_guard.check([str(f)], OWN_CONFIG, terms=[(1, OWN)]) == []
+    assert leak_guard.check([str(f)], OWN_CONFIG, terms=[(1, "fixture.owner")]) != []

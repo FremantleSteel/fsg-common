@@ -798,7 +798,8 @@ def check(paths: list[str], config: GuardConfig,
     reported by the caller, never blocking. `terms` is `load_terms()`'s
     result; each path and its content is checked against it."""
     problems: list[str] = []
-    problems.extend(_term_hits(paths, path_sources, read_content, terms))
+    problems.extend(_term_hits(paths, path_sources, read_content,
+                               terms_to_check(terms, config)))
     for path in paths:
         norm = path.replace("\\", "/")
 
@@ -975,6 +976,18 @@ def term_patterns(terms: list[str]) -> list[re.Pattern]:
     return patterns
 
 
+def terms_to_check(terms: list[tuple[int, str]] | None,
+                   config: GuardConfig) -> list[tuple[int, str]]:
+    """`terms` less any term that is exactly an address on `config`'s own
+    allowed list (the owner's decision of 22 Nov 2026, "Guard honours own
+    list", crm#3698). The whole term must equal the whole address, ignoring
+    case and outer spaces; a domain, a part of an address or a longer
+    address is still checked. Done here, where terms are compared, so every
+    repo's guard gets the same rule."""
+    allowed = {a.strip().lower() for a in config.allowed_email_addresses}
+    return [(n, t) for n, t in terms or [] if t.strip().lower() not in allowed]
+
+
 def mask_terms(msg: str, patterns: list[re.Pattern]) -> str:
     """`msg` with every client term in it replaced by `[client term]`. A
     file path can hold a client's name, and every message names its path."""
@@ -1074,7 +1087,11 @@ def _load_terms_for_run(args, config: GuardConfig):
               "and file types were.", file=sys.stderr)
         return None, None
     try:
-        return load_terms(path), None
+        terms = load_terms(path)
+        if not terms_to_check(terms, config):
+            raise TermsNotLoaded("every term in it is an address this guard "
+                                 "allows, so none would be checked")
+        return terms, None
     except TermsNotLoaded as exc:
         print(f"REFUSED. {NOT_LOADED}: {source} was given but {exc}.",
               file=sys.stderr)
@@ -1191,7 +1208,11 @@ def run(argv: list[str] | None, config: GuardConfig, *,
     if not problems:
         print(f"ok -- {len(paths)} file(s) checked, nothing blocked")
         if terms:
-            print(f"  client names checked against {len(terms)} term(s)")
+            checked = len(terms_to_check(terms, config))
+            print(f"  client names checked against {checked} term(s)")
+            if checked < len(terms):
+                print(f"  {len(terms) - checked} term(s) not checked: each is "
+                      "exactly an address this guard allows")
         _report_near_misses()
         return 0
 
