@@ -476,6 +476,7 @@ def test_a_check_wrapper_without_the_terms_keyword_still_runs(monkeypatch, tmp_p
         return real(paths, config, path_sources=path_sources,
                     read_content=read_content, near_misses=near_misses)
 
+    # real-gate test: test_planted_term_blocks_and_is_masked (the wrapper calls the real check)
     monkeypatch.setattr(leak_guard, "check", wrapper)
     f = tmp_path / "clean.md"
     f.write_text("nothing to see\n", encoding="utf-8")
