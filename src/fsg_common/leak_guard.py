@@ -110,7 +110,8 @@ says plainly that client names were NOT checked. A list that is named but
 missing, empty or unreadable refuses in every mode. A match never prints
 the term, only its line number in the list. A term matches as a whole
 word, case-insensitive, and a space in it also matches `_`, `-` and `.`
-(`term_patterns()`). Every email and phone value
+(`term_patterns()`). A hit that lies wholly inside an allowed address
+in the same text is skipped (`allowed_address_spans()`). Every email and phone value
 `run()` prints is masked, because a CI log is readable by everyone with
 repo access; `check()` still returns the raw value.
 """
@@ -799,7 +800,7 @@ def check(paths: list[str], config: GuardConfig,
     result; each path and its content is checked against it."""
     problems: list[str] = []
     problems.extend(_term_hits(paths, path_sources, read_content,
-                               terms_to_check(terms, config)))
+                               terms_to_check(terms, config), config))
     for path in paths:
         norm = path.replace("\\", "/")
 
@@ -988,6 +989,32 @@ def terms_to_check(terms: list[tuple[int, str]] | None,
     return [(n, t) for n, t in terms or [] if t.strip().lower() not in allowed]
 
 
+def allowed_address_spans(body: str,
+                          config: GuardConfig) -> list[tuple[int, int]]:
+    """(start, end) of each address in `body` that is exactly an address on
+    `config`'s own allowed list. The address is found the way the email
+    check finds it (`EMAIL_RE`), so a longer address that holds an allowed
+    one is a different address and gives no span. Case-insensitive; a
+    domain on the allowed-domain list is not enough (crm#3698)."""
+    allowed = {a.strip().lower() for a in config.allowed_email_addresses}
+    if not allowed:
+        return []
+    return [m.span() for m in EMAIL_RE.finditer(body)
+            if m.group(0).lower() in allowed]
+
+
+def _first_term_hit(rx: re.Pattern, body: str,
+                    spans: list[tuple[int, int]]) -> re.Match | None:
+    """The first hit of `rx` in `body` not wholly inside one of `spans`.
+    The owner's decision of 23 Nov 2026 ("guard changes- A", crm#3698): a
+    term hit wholly inside an exact allowed address is skipped; the same
+    term anywhere else still blocks."""
+    for hit in rx.finditer(body):
+        if not any(a <= hit.start() and hit.end() <= b for a, b in spans):
+            return hit
+    return None
+
+
 def mask_terms(msg: str, patterns: list[re.Pattern]) -> str:
     """`msg` with every client term in it replaced by `[client term]`. A
     file path can hold a client's name, and every message names its path."""
@@ -998,7 +1025,8 @@ def mask_terms(msg: str, patterns: list[re.Pattern]) -> str:
 
 def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
                read_content: bool,
-               terms: list[tuple[int, str]] | None) -> list[str]:
+               terms: list[tuple[int, str]] | None,
+               config: GuardConfig | None = None) -> list[str]:
     # Matched here, not as extra secret patterns: the secret scan skips any
     # hit that looks like a placeholder, and a client name is never skipped.
     # Allowed paths and skipped extensions are checked too, on purpose.
@@ -1018,8 +1046,9 @@ def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
         body, _err = _read_body(path, path_sources)
         if body is None:
             continue          # the main check reports the unreadable file
+        spans = allowed_address_spans(body, config) if config else []
         for n, rx in path_rx:
-            hit = rx.search(body)
+            hit = _first_term_hit(rx, body, spans)
             if hit:
                 line = body.count("\n", 0, hit.start()) + 1
                 problems.append(f"{norm}:{line}: client term "

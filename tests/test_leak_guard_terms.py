@@ -333,4 +333,110 @@ def test_check_skips_an_allowed_address_term_too(tmp_path):
     f = tmp_path / "a.md"
     f.write_text(f"{OWN}\n", encoding="utf-8")
     assert leak_guard.check([str(f)], OWN_CONFIG, terms=[(1, OWN)]) == []
+    f.write_text("fixture.owner\n", encoding="utf-8")
     assert leak_guard.check([str(f)], OWN_CONFIG, terms=[(1, "fixture.owner")]) != []
+
+
+# --- a term hit wholly inside an allowed address is skipped (owner's decision,
+# 23 Nov 2026, "guard changes- A"). The same term in plain text, or inside any
+# address not on the list, still blocks. The term has two words and no "@",
+# and matches inside the address because a space also matches ".". Every
+# term and address here is made up.
+
+SPAN_TERM = "Vantor Quell"
+SPAN_OWN = "vantor.quell@zorbex-fixture.test"
+SPAN_CONFIG = leak_guard.GuardConfig(
+    repo_holds="Test repo.", client_data_lives="Elsewhere.",
+    enable_pii=True, require_term_list=True,
+    allowed_email_addresses=frozenset({SPAN_OWN}))
+
+
+def _span_run(tmp_path, text, config=SPAN_CONFIG) -> tuple[int, str]:
+    lst = _own_list(tmp_path, SPAN_TERM)
+    f = tmp_path / "mail-redirect.md"
+    f.write_text(text, encoding="utf-8")
+    return _run(["--terms", str(lst), "--files", str(f)], config)
+
+
+def _never_printed(report):
+    assert "vantor" not in report.lower() and "quell" not in report.lower(), report
+
+
+@pytest.mark.parametrize("text", [
+    f"test mail goes to {SPAN_OWN}\n",
+    f"ALLOWED = {{'{SPAN_OWN.upper()}', 'x@y.invalid'}}\n",
+    f"<{SPAN_OWN}>, <{SPAN_OWN}>\n",
+])
+def test_a_term_inside_an_allowed_address_passes(tmp_path, text):
+    code, report = _span_run(tmp_path, text)
+    assert code == 0, report
+    assert "checked against 1 term(s)" in report
+    _never_printed(report)
+
+
+@pytest.mark.parametrize("text", [
+    "letter to Vantor Quell\n",
+    "see vantor_quell-notes.xlsx\n",
+    "vantor.quell\n",
+])
+def test_the_same_term_in_plain_text_still_blocks(tmp_path, text):
+    code, report = _span_run(tmp_path, text)
+    assert code == 1, report
+    assert "client term (line 1 of the term list)" in report
+    _never_printed(report)
+
+
+@pytest.mark.parametrize("addr", [
+    "vantor.quell@zorbex-fixtura.test",     # one character different
+    "vantor.quell@zorbex-fixture.tesu",     # one character different
+    "vantor.quell@zorbex-fixture.test.au",  # holds the allowed address
+    "a.vantor.quell@zorbex-fixture.test",   # holds the allowed address
+])
+def test_the_same_term_inside_an_address_not_on_the_list_still_blocks(tmp_path, addr):
+    code, report = _span_run(tmp_path, f"mail to {addr}\n")
+    assert code == 1, report
+    assert "client term (line 1 of the term list)" in report
+    _never_printed(report)
+
+
+@pytest.mark.parametrize("text,line", [
+    (f"{SPAN_OWN} and Vantor Quell\n", 1),
+    (f"Vantor Quell <{SPAN_OWN}>\n", 1),
+    (f"to: {SPAN_OWN}\nfrom: Vantor Quell\n", 2),
+])
+def test_an_allowed_address_beside_the_term_still_blocks_the_plain_hit(tmp_path, text,
+                                                                         line):
+    code, report = _span_run(tmp_path, text)
+    assert code == 1, report
+    assert f"mail-redirect.md:{line}: client term (line 1 of the term list)" in report
+    _never_printed(report)
+
+
+@pytest.mark.parametrize("config", [STRICT, OWN_CONFIG])
+def test_a_planted_term_with_no_allowed_address_blocks(tmp_path, config):
+    # The guard planted-term test: no address on the list, so nothing is skipped,
+    # not even the term inside an address.
+    code, report = _span_run(tmp_path, f"test mail goes to {SPAN_OWN}\n", config)
+    assert code == 1, report
+    assert "client term (line 1 of the term list)" in report
+    _never_printed(report)
+
+
+def test_check_skips_a_term_inside_an_allowed_address_too(tmp_path):
+    f = tmp_path / "a.md"
+    f.write_text(f"{SPAN_OWN}\n", encoding="utf-8")
+    assert leak_guard.check([str(f)], SPAN_CONFIG, terms=[(1, SPAN_TERM)]) == []
+    f.write_text(f"{SPAN_OWN} Vantor Quell\n", encoding="utf-8")
+    assert leak_guard.check([str(f)], SPAN_CONFIG, terms=[(1, SPAN_TERM)]) != []
+
+
+def test_a_hit_that_runs_out_of_an_allowed_address_still_blocks(tmp_path):
+    # Wholly inside, not merely touching: this hit starts in the address and
+    # ends in the plain text after it.
+    lst = _own_list(tmp_path, "Fixture Test Ops")
+    f = tmp_path / "a.md"
+    f.write_text(f"{SPAN_OWN} ops\n", encoding="utf-8")
+    code, report = _run(["--terms", str(lst), "--files", str(f)], SPAN_CONFIG)
+    assert code == 1, report
+    assert "client term (line 1 of the term list)" in report
+    assert "fixture test ops" not in report.lower(), report
