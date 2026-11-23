@@ -948,9 +948,12 @@ class TermsNotLoaded(Exception):
 
 def load_terms(path: str) -> list[tuple[int, str]]:
     """(line number, term) for each term in the file at `path`: one
-    case-insensitive substring per line, '#' lines and blank lines ignored."""
+    case-insensitive substring per line, '#' lines and blank lines ignored.
+    Read as utf-8-sig: a list saved "UTF-8 with BOM" (Windows PowerShell 5.1,
+    Notepad) would otherwise carry U+FEFF into the line-1 term, which then
+    never matches while the run still counts it (PR 91 review)."""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8-sig") as fh:
             text = fh.read()
     except FileNotFoundError:
         raise TermsNotLoaded("the file it names does not exist") from None
@@ -1215,9 +1218,13 @@ def run(argv: list[str] | None, config: GuardConfig, *,
         return 2
 
     near_misses: list[str] = []
+    # `terms=` only when a list was loaded: a consumer that replaces `check`
+    # with a wrapper older than the keyword (fsg-tender-review) keeps
+    # working when it loads no list here (PR 91 review).
+    term_kw = {"terms": terms} if terms is not None else {}
     problems = [mask_terms(mask_message(p), term_rx) for p in
                 check(paths, config, path_sources=path_sources,
-                      near_misses=near_misses, terms=terms)]
+                      near_misses=near_misses, **term_kw)]
     near_misses[:] = [mask_terms(mask_message(m), term_rx) for m in near_misses]
 
     def _report_near_misses() -> None:

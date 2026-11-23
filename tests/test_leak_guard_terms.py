@@ -440,3 +440,45 @@ def test_a_hit_that_runs_out_of_an_allowed_address_still_blocks(tmp_path):
     assert code == 1, report
     assert "client term (line 1 of the term list)" in report
     assert "fixture test ops" not in report.lower(), report
+
+
+# --- review fixes on PR 91 (crm#3698) --------------------------------------
+
+def test_a_term_file_with_a_bom_still_checks_its_first_line(tmp_path, leaky):
+    # A list saved by Windows PowerShell 5.1 or Notepad's "UTF-8 with BOM"
+    # starts with U+FEFF. Read as plain utf-8, the line-1 term carried the
+    # BOM, could never match, and the run still counted it as checked.
+    lst = tmp_path / "bom-terms.txt"
+    lst.write_bytes(b"\xef\xbb\xbf" + f"{TERM}\n".encode())
+    assert leak_guard.load_terms(str(lst)) == [(1, TERM)]
+    code, report = _run(["--terms", str(lst), "--files", str(leaky)])
+    assert code == 1, report
+    assert "client term (line 1 of the term list)" in report
+    assert "zorbex" not in report.lower(), report
+
+
+def test_a_bom_before_a_comment_line_does_not_make_it_a_term(tmp_path):
+    lst = tmp_path / "bom-comment.txt"
+    lst.write_bytes(b"\xef\xbb\xbf" + f"# made-up list\n{TERM}\n".encode())
+    assert leak_guard.load_terms(str(lst)) == [(2, TERM)]
+
+
+def test_a_check_wrapper_without_the_terms_keyword_still_runs(monkeypatch, tmp_path):
+    # fsg-tender-review's guard replaces leak_guard.check with a wrapper whose
+    # signature predates `terms=`. With no list loaded, run() must not pass
+    # the keyword, or that guard crashes with a TypeError on the pin bump.
+    real = leak_guard.check
+    seen = []
+
+    def wrapper(paths, config, path_sources=None, read_content=True,
+                near_misses=None):
+        seen.append(paths)
+        return real(paths, config, path_sources=path_sources,
+                    read_content=read_content, near_misses=near_misses)
+
+    monkeypatch.setattr(leak_guard, "check", wrapper)
+    f = tmp_path / "clean.md"
+    f.write_text("nothing to see\n", encoding="utf-8")
+    code, report = _run(["--files", str(f)], LOOSE)
+    assert code == 0, report
+    assert seen == [[str(f)]]
