@@ -21,6 +21,11 @@ It runs two checks (crm#2813):
    holds a term is printed with the term masked (the shared check's output
    too), because a CI log on a public repo is public too.
 
+   A term under 4 characters is still checked, but a hit on it prints WARN
+   and does not block on its own: so short a term matches inside ordinary
+   words (the owner's Desk answer of 24 Nov 2026, crm#3698). A hit on a
+   longer term blocks, with or without short-term hits beside it.
+
 **An absent input must not answer.** No term list, an unreadable file, a
 file inside this repo, an empty list or a term under three characters is
 a REFUSAL (exit 2), never a pass. The shared check still runs and reports
@@ -141,9 +146,21 @@ def _mask(text: str, patterns: list[re.Pattern]) -> str:
     return text
 
 
+def _sink(problems: list[str], warnings: list[str] | None,
+          term: str) -> list[str]:
+    """Where a hit on `term` goes: `warnings` for a short term when the
+    caller gave a list for them, else `problems` (blocks)."""
+    if warnings is not None and leak_guard.is_short_term(term):
+        return warnings
+    return problems
+
+
 def term_problems(paths: list[str], terms: list[str],
-                  path_sources: dict[str, str] | None = None) -> list[str]:
-    """One line per path or content hit, naming the term by number only."""
+                  path_sources: dict[str, str] | None = None,
+                  warnings: list[str] | None = None) -> list[str]:
+    """One line per path or content hit, naming the term by number only.
+    With `warnings` given, a hit on a short term goes there instead of
+    into the blocking list; without it, every hit blocks."""
     patterns = _term_patterns(terms)
     problems: list[str] = []
     for path in paths:
@@ -151,7 +168,7 @@ def term_problems(paths: list[str], terms: list[str],
         shown = _mask(norm, patterns)
         for number, rx in enumerate(patterns, start=1):
             if rx.search(norm):
-                problems.append(
+                _sink(problems, warnings, terms[number - 1]).append(
                     f"{shown}: the file name holds private term #{number}")
         ext = os.path.splitext(norm)[1].lower()
         if ext not in GUARD_CONFIG.scan_extensions and not leak_guard._looks_like_text(path):
@@ -168,7 +185,7 @@ def term_problems(paths: list[str], terms: list[str],
             hit = rx.search(body)
             if hit:
                 line = body[:hit.start()].count("\n") + 1
-                problems.append(
+                _sink(problems, warnings, terms[number - 1]).append(
                     f"{shown}:{line}: holds private term #{number}")
     return problems
 
@@ -208,15 +225,21 @@ def _run_shared_masked(argv: list[str], patterns: list[re.Pattern]) -> int:
 
 
 def message_problems(messages: list[tuple[str, str]],
-                     patterns: list[re.Pattern]) -> list[str]:
-    """`(label, text)` per commit message; hits named by term number only."""
-    problems = []
+                     patterns: list[re.Pattern],
+                     terms: list[str] | None = None,
+                     warnings: list[str] | None = None) -> list[str]:
+    """`(label, text)` per commit message; hits named by term number only.
+    With `terms` and `warnings` given, a hit on a short term goes to
+    `warnings`; otherwise every hit blocks."""
+    problems: list[str] = []
     for label, text in messages:
         for number, rx in enumerate(patterns, start=1):
             hit = rx.search(text)
             if hit:
                 line = text[:hit.start()].count("\n") + 1
-                problems.append(f"commit message {label}:{line}: holds "
+                sink = (_sink(problems, warnings, terms[number - 1])
+                        if terms is not None else problems)
+                sink.append(f"commit message {label}:{line}: holds "
                                 f"private term #{number}")
     return problems
 
@@ -240,6 +263,13 @@ def _refuse_no_terms(exc: Exception) -> None:
           file=sys.stderr)
 
 
+def _warn(warnings: list[str]) -> None:
+    for w in warnings:
+        print(f"WARN -- {w}: a short term (under "
+              f"{leak_guard.SHORT_TERM_LENGTH} characters), so this does "
+              f"not block. Check it is not a client's name", file=sys.stderr)
+
+
 def _report(problems: list[str], what: str) -> None:
     print(f"BLOCKED. A private term would be published in this public repo "
           f"({what}).", file=sys.stderr)
@@ -257,7 +287,10 @@ def check_message_file(path: str) -> int:
     except (TermsUnavailable, OSError) as exc:
         _refuse_no_terms(exc)
         return 2
-    problems = message_problems([("(new)", text)], _term_patterns(terms))
+    warnings: list[str] = []
+    problems = message_problems([("(new)", text)], _term_patterns(terms),
+                                terms, warnings)
+    _warn(warnings)
     if problems:
         _report(problems, "commit message")
         return 1
@@ -289,7 +322,10 @@ def main(argv: list[str] | None = None) -> int:
     rev_range = argv[argv.index("--range") + 1] if "--range" in argv else None
     if rev_range:
         try:
-            msg_problems = message_problems(_range_messages(rev_range), patterns)
+            msg_warnings: list[str] = []
+            msg_problems = message_problems(_range_messages(rev_range),
+                                            patterns, terms, msg_warnings)
+            _warn(msg_warnings)
         except (OSError, subprocess.CalledProcessError) as exc:
             print(f"REFUSED. Commit messages in {rev_range} could not be read "
                   f"({type(exc).__name__}).", file=sys.stderr)
@@ -312,7 +348,9 @@ def main(argv: list[str] | None = None) -> int:
         print("private terms -- no files selected, so nothing was checked")
         return shared_rc
 
-    problems = term_problems(paths, terms, path_sources)
+    warnings: list[str] = []
+    problems = term_problems(paths, terms, path_sources, warnings)
+    _warn(warnings)
     if not problems:
         print(f"ok -- {len(paths)} file(s) checked against {len(terms)} "
               f"private term(s), none found")
