@@ -268,3 +268,50 @@ def test_the_old_path_name_still_loads_the_list(tmp_path):
     f.write_text("Quillmore\n", encoding="utf-8")
     loaded = guard.load_terms({guard.LEGACY_FILE_ENV: str(f)}, repo_root=tmp_path / "repo")
     assert loaded == ["Quillmore"]
+
+
+# --- a short term warns, never blocks on its own (the owner's Desk answer
+# of 24 Nov 2026, crm#3698). Both terms are made up.
+
+SHORT_LONG = "Qzv\nWrex\n"      # 3 characters warns; 4 blocks
+
+
+@pytest.mark.parametrize("text, code, warns", [
+    ("see qzv here\n", 0, True),
+    ("see wrex here\n", 1, False),
+    ("qzv and wrex\n", 1, True),
+])
+def test_short_term_hit_warns_long_term_hit_blocks(repo, text, code, warns):
+    (repo / "notes.md").write_text(text, encoding="utf-8")
+    _git(repo, "add", ".")
+
+    out = _run_hook(repo, {guard.TERMS_TEXT_ENV: SHORT_LONG})
+
+    assert out.returncode == code, out.stdout + out.stderr
+    assert ("WARN -- notes.md:1: holds private term #1" in out.stderr) is warns
+    assert ("holds private term #2" in out.stderr) is (code == 1)
+    text_out = (out.stdout + out.stderr).lower()
+    assert "qzv" not in text_out and "wrex" not in text_out
+
+
+def test_short_term_in_a_commit_message_warns(repo, tmp_path):
+    msg = tmp_path / "COMMIT_EDITMSG"
+    msg.write_text("Tidy qzv notes\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items()
+           if k not in (guard.TERMS_FILE_ENV, guard.LEGACY_FILE_ENV)}
+    env[guard.TERMS_TEXT_ENV] = SHORT_LONG
+    out = subprocess.run([sys.executable, str(SCRIPT), "--message-file", str(msg)],
+                         cwd=repo, env=env, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert "WARN -- commit message (new):1: holds private term #1" in out.stderr
+
+    msg.write_text("Tidy wrex notes\n", encoding="utf-8")        # control
+    out = subprocess.run([sys.executable, str(SCRIPT), "--message-file", str(msg)],
+                         cwd=repo, env=env, capture_output=True, text=True)
+    assert out.returncode == 1, out.stderr
+
+
+def test_without_a_warnings_list_every_hit_blocks(tmp_path):
+    f = tmp_path / "notes.md"
+    f.write_text("see qzv here\n", encoding="utf-8")
+    assert guard.term_problems([str(f)], ["Qzv"])

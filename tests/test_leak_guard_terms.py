@@ -483,3 +483,64 @@ def test_a_check_wrapper_without_the_terms_keyword_still_runs(monkeypatch, tmp_p
     code, report = _run(["--files", str(f)], LOOSE)
     assert code == 0, report
     assert seen == [[str(f)]]
+
+
+# --- a short term warns, never blocks on its own (the owner's Desk answer
+# of 24 Nov 2026, crm#3698). Both terms are made up.
+
+SHORT = "Qzv"          # 3 characters: a hit warns
+LONG = "Wrex"          # 4 characters: a hit blocks, as before
+
+
+def _short_long(tmp_path, text) -> tuple[int, str]:
+    lst = _own_list(tmp_path, SHORT, LONG)
+    f = tmp_path / "notes.md"
+    f.write_text(text, encoding="utf-8")
+    return _run(["--terms", str(lst), "--files", str(f)])
+
+
+def test_a_short_term_hit_warns_and_passes(tmp_path):
+    code, report = _short_long(tmp_path, "see qzv here\n")
+    assert code == 0, report
+    assert "WARN -- " in report
+    assert "client term (line 1 of the term list)" in report
+    assert "1 of them under 4 characters" in report
+    assert "qzv" not in report.lower(), report
+
+
+def test_a_four_letter_term_hit_still_blocks(tmp_path):
+    code, report = _short_long(tmp_path, "see wrex here\n")
+    assert code == 1, report
+    assert "client term (line 2 of the term list)" in report
+    assert "WARN -- " not in report
+    assert "wrex" not in report.lower(), report
+
+
+def test_a_short_and_a_long_hit_in_one_file_blocks_and_warns(tmp_path):
+    code, report = _short_long(tmp_path, "qzv and wrex\n")
+    assert code == 1, report
+    assert "BLOCKED" in report and "WARN -- " in report
+    assert "qzv" not in report.lower() and "wrex" not in report.lower(), report
+
+
+def test_a_short_term_in_a_file_path_warns(tmp_path):
+    lst = _own_list(tmp_path, SHORT, LONG)
+    f = tmp_path / "qzv_notes.md"
+    f.write_text("nothing here\n", encoding="utf-8")
+    code, report = _run(["--terms", str(lst), "--files", str(f)])
+    assert code == 0, report
+    assert "file path holds a client term (line 1" in report
+
+
+def test_check_itself_still_blocks_on_a_short_term(tmp_path):
+    # Only run() splits the list; a caller of check() that hands it a short
+    # term gets the safe answer, a block.
+    f = tmp_path / "notes.md"
+    f.write_text("see qzv here\n", encoding="utf-8")
+    assert leak_guard.check([str(f)], LOOSE, terms=[(1, SHORT)])
+
+
+def test_short_term_length_is_four():
+    assert leak_guard.SHORT_TERM_LENGTH == 4
+    assert leak_guard.is_short_term(" Qzv ")
+    assert not leak_guard.is_short_term("Wrex")

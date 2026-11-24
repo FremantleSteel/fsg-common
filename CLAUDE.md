@@ -19,7 +19,7 @@ It also carries shared repo tooling (leak guard, `COMMANDS.md` generator, PR-bod
 | Rule | What catches it |
 | --- | --- |
 | No client data, PII or secrets in any commit | `fsg_common.leak_guard` (CI and the pre-commit hook); `tests/test_leak_guard.py` |
-| Sessions working as Claude may not push, open a PR on, merge or comment in this repo. They hand David a patch (`git format-patch`) and he pushes it | A person. There is no check |
+| Lanes may push PR branches, never main (the owner's Desk answer of 24 Nov 2026). Merging stays the coordinator's call | Branch protection on `main` asks for a PR, but an admin can skip it; a person |
 
 ## An absent input must not answer
 

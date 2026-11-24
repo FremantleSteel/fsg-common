@@ -111,7 +111,12 @@ missing, empty or unreadable refuses in every mode. A match never prints
 the term, only its line number in the list. A term matches as a whole
 word, case-insensitive, and a space in it also matches `_`, `-` and `.`
 (`term_patterns()`). A hit that lies wholly inside an allowed address
-in the same text is skipped (`allowed_address_spans()`). Every email and phone value
+in the same text is skipped (`allowed_address_spans()`). A term shorter
+than 4 characters (`SHORT_TERM_LENGTH`) is still checked, but a hit on it
+prints WARN and does not block on its own, because so short a term matches
+inside ordinary text (the owner's Desk answer of 24 Nov 2026, crm#3698).
+`run()` does this; `check()` still blocks on every term it is given.
+Every email and phone value
 `run()` prints is masked, because a CI log is readable by everyone with
 repo access; `check()` still returns the raw value.
 """
@@ -940,6 +945,17 @@ TERMS_ENV = "FSG_LEAK_TERMS"
 #: the owner's laptop sets this one (crm#3698 checker, 21 Nov 2026).
 LEGACY_TERMS_ENV = "FSG_LEAK_TERMS_FILE"
 NOT_LOADED = "term list not loaded: nothing was checked"
+#: A term with fewer characters than this (outer spaces ignored) is a short
+#: term: `run()` still checks it, but a hit on it is a WARN, never a block on
+#: its own (the owner's Desk answer of 24 Nov 2026, crm#3698). Every longer
+#: term blocks as before.
+SHORT_TERM_LENGTH = 4
+
+
+def is_short_term(term: str) -> bool:
+    """True for a term under `SHORT_TERM_LENGTH` characters: a hit on it
+    warns and does not block."""
+    return len(term.strip()) < SHORT_TERM_LENGTH
 
 
 class TermsNotLoaded(Exception):
@@ -1144,7 +1160,9 @@ def run(argv: list[str] | None, config: GuardConfig, *,
     ap.add_argument("--all", action="store_true",
                     help="check every tracked file (CI mode)")
     ap.add_argument("--terms", default=None,
-                    help=f"local client term list (else {TERMS_ENV})")
+                    help=f"local client term list (else {TERMS_ENV}). A hit "
+                         f"on a term under {SHORT_TERM_LENGTH} characters "
+                         "prints WARN and does not block; longer terms block")
     ap.add_argument("--terms-optional", action="store_true",
                     help="run without a term list, saying names were NOT checked")
     args = ap.parse_args(argv)
@@ -1221,11 +1239,26 @@ def run(argv: list[str] | None, config: GuardConfig, *,
     # `terms=` only when a list was loaded: a consumer that replaces `check`
     # with a wrapper older than the keyword (fsg-tender-review) keeps
     # working when it loads no list here (PR 91 review).
-    term_kw = {"terms": terms} if terms is not None else {}
+    # A short term is checked below and only warns; `check()` gets the
+    # longer terms, which block (the owner's Desk answer of 24 Nov 2026).
+    short_terms = [(n, t) for n, t in terms or [] if is_short_term(t)]
+    long_terms = [(n, t) for n, t in terms or [] if not is_short_term(t)]
+    term_kw = {"terms": long_terms} if terms is not None else {}
     problems = [mask_terms(mask_message(p), term_rx) for p in
                 check(paths, config, path_sources=path_sources,
                       near_misses=near_misses, **term_kw)]
     near_misses[:] = [mask_terms(mask_message(m), term_rx) for m in near_misses]
+    short_hits = [mask_terms(h, term_rx) for h in
+                  _term_hits(paths, path_sources, True,
+                             terms_to_check(short_terms, config), config)]
+
+    def _report_short_hits() -> None:
+        # Never folded into the verdict: a term this short matches inside
+        # ordinary words, so a hit is for a person to read, not a block.
+        for h in short_hits:
+            print(f"WARN -- {h}: a short term (under {SHORT_TERM_LENGTH} "
+                  "characters), so this does not block. Check it is not a "
+                  "client's name", file=sys.stderr)
 
     def _report_near_misses() -> None:
         # After the verdict, never folded into it: a near-miss is worth a
@@ -1249,6 +1282,11 @@ def run(argv: list[str] | None, config: GuardConfig, *,
             if checked < len(terms):
                 print(f"  {len(terms) - checked} term(s) not checked: each is "
                       "exactly an address this guard allows")
+            short = len(terms_to_check(short_terms, config))
+            if short:
+                print(f"  {short} of them under {SHORT_TERM_LENGTH} "
+                      "characters: a hit on one warns, never blocks")
+        _report_short_hits()
         _report_near_misses()
         return 0
 
@@ -1258,4 +1296,5 @@ def run(argv: list[str] | None, config: GuardConfig, *,
         print(f"  {p}", file=sys.stderr)
     print("\nGit history keeps a file even after a later deletion, so this "
           "has to be fixed before the commit, not after.", file=sys.stderr)
+    _report_short_hits()
     return 1
