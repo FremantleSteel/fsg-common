@@ -8,7 +8,7 @@ General working rules (tokens, smallest change, detached jobs, never discarding 
 
 ## What this is
 
-The code shared by the FSG estimating repos, as one package instead of copies kept in step by hand. The estimating part is `fsg_common.sections`: FSG's steel section library (`data/fsg_sections.json`, a snapshot of the workbook's `90_Lists`), the resolver that turns a drawing's notation into a canonical `Section_ID` or an honest miss, the two rounding policies, and the estimator's substitution list. Two repos import it: `fsg-tender-review` (`resolve.py` is a shim over it) and `fsg-bluebeam-steel-standards` (`tools/fsg_mto/sections.py`, which vendors a copy into the share payload). It decides tonnages for both, so the rules below are invariants, not suggestions.
+The code shared by the FSG estimating repos, as one package instead of copies kept in step by hand. The estimating part is `fsg_common.sections`: FSG's steel section library (`data/fsg_sections.json`, a snapshot of the workbook's `90_Lists`), the resolver that turns a drawing's notation into a canonical `Section_ID` or an honest miss, and the estimator's substitution list. Two repos import it: `fsg-tender-review` (`resolve.py` is a shim over it) and `fsg-bluebeam-steel-standards` (`tools/fsg_mto/sections.py`, which vendors a copy into the share payload). It decides tonnages for both, so the rules below are invariants, not suggestions.
 
 It also carries shared repo tooling (leak guard, `COMMANDS.md` generator, PR-body check, reading-path cap); `README.md` lists it. A plausible answer is not better than an honest unresolved result.
 
@@ -52,9 +52,9 @@ If guidance conflicts, the order is: these invariants; recorded estimator decisi
 | **Fix the case named and the case beside it.** The 6 Sep 2026 review found eight fixes in five days that broke the neighbouring notation: a flat-bar fix read `6 x 100 x 10 FL` as `100FL6` while making `FL 100 X 10` work. Pin the neighbours in the same test file (spacing, reordered dimensions, decimal and rounded wall, modifier present and absent, a real candidate and a similar one that does not exist): a small set, not volume. | `tests/test_resolver.py` is the pattern |
 | **Never weaken a test to make a change pass**, and never hand-edit generated output (`data/fsg_sections.json`, `docs/COMMANDS.md`). Fix the source or generator and regenerate. | A person; `gen_commands_index.py --check` in CI |
 
-## The two rounding policies
+## The CHS 6.4 rounding question is settled
 
-`TENDER_REVIEW` and `BLUEBEAM` differ on one thing: whether a decimal wall one place off the library's (`273 CHS 6.4` against `273CHS6.35`) is `canonical` or `nearest`. That is an open estimator question (`fsg-tender-review#184` item 1), carried as data and not settled here. `resolve()` defaults to `TENDER_REVIEW`; the Bluebeam toolkit passes `BLUEBEAM`. Do not remove the difference to make the consumers agree. `tools/known_issues.py` prints the live state; it reports and never gates.
+There is one resolver and no rounding policy. `RoundingPolicy` and `_policy.py` were deleted 7 Sep 2026, after both consumers converged on `canonical` for `273 CHS 6.4`. On 18 Sep 2026 the owner confirmed the metric 6.40 mm wall, and `273 CHS 6.4` resolves to a synthesised `273CHS6.4` at 42.1 kg/m by a resolver rule (`_chs_metric_wall()`), not by editing the generated data. `README.md` ("The one thing that used to differ, and how it was settled") has the account. `tools/known_issues.py` prints the live state; it reports and never gates.
 
 ## Parity is honest or it is not a pass
 

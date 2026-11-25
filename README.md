@@ -130,7 +130,7 @@ one reading 733 sections and the other 750, and nothing reported a difference.
 ## Running the checks
 
 ```
-python -m pytest -q          # 260 tests, no sibling repos needed
+python -m pytest -q          # 1122 tests collected on 25 Nov 2026, no sibling repos needed
 python -m ruff check .
 python tools/parity_report.py   # needs both sibling checkouts
 python scripts/check_no_client_data.py --all   # the leak guard

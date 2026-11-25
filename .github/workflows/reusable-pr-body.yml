@@ -1,0 +1,55 @@
+# crm#2815 item 4: the PR-body check as a reusable workflow. A repo calls it from its own
+# pr-body.yml, which keeps the trigger (opened, edited, synchronize, reopened) and the
+# concurrency group, and passes its runner label and the fsg-common ref to run:
+#
+#   jobs:
+#     pr-body:
+#       uses: FremantleSteel/fsg-common/.github/workflows/reusable-pr-body.yml@<tag or sha>
+#       with: { runs-on: self-hosted, fsg-common-ref: <same tag or sha> }
+#
+# Both inputs are required, so a caller never gets a runner or a version by default.
+name: Reusable PR body check
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: Runner label of the calling repo (one label, for example ubuntu-latest)
+        type: string
+        required: true
+      fsg-common-ref:
+        description: fsg-common tag or commit whose pr_body module runs
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-body:
+    name: PR body (no AI attribution line)
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: FremantleSteel/fsg-common
+          ref: ${{ inputs.fsg-common-ref }}
+          path: .fsg-common
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Fetch the first comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments?per_page=1"
+          > first-comment.json
+
+      - name: Check the body
+        env:
+          PYTHONPATH: .fsg-common/src
+        run: python -m fsg_common.pr_body --event "$GITHUB_EVENT_PATH" --comments first-comment.json

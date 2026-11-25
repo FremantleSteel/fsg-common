@@ -1,0 +1,39 @@
+# crm#2815 item 4: the commands-index check as a reusable workflow. It runs the calling repo's
+# own generator wrapper with --check, so the repo's filing rules stay with the repo.
+#
+#   jobs:
+#     commands-index:
+#       uses: FremantleSteel/fsg-common/.github/workflows/reusable-commands-index.yml@<tag or sha>
+#       with: { runs-on: self-hosted, script: scripts/gen_commands_index.py }
+name: Reusable commands index check
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        required: true
+      script:
+        description: The caller's generator wrapper, relative to its root
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  commands-index:
+    name: docs/COMMANDS.md is current
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Check the index
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: python "$SCRIPT" --check

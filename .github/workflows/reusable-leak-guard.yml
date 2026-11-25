@@ -1,0 +1,65 @@
+# crm#2815 item 4: the leak-guard step (range logic and secret plumbing) as a reusable workflow.
+# The calling repo keeps its own wrapper (it holds that repo's GuardConfig); this runs it.
+#
+#   jobs:
+#     leak-guard:
+#       uses: FremantleSteel/fsg-common/.github/workflows/reusable-leak-guard.yml@<tag or sha>
+#       with: { runs-on: self-hosted, script: scripts/check_no_client_data.py }
+#       secrets: { FSG_LEAK_TERMS: ${{ secrets.FSG_LEAK_TERMS }} }
+#
+# The guard prints REFUSED and exits 2 when the terms secret is absent; nothing here turns that
+# into a pass. The terms are never printed.
+name: Reusable leak guard
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        required: true
+      script:
+        description: The caller's wrapper, relative to its root
+        type: string
+        required: true
+    secrets:
+      FSG_LEAK_TERMS:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  leak-guard:
+    name: Block client documents, credentials and private names
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Run the guard
+        env:
+          FSG_LEAK_TERMS_TEXT: ${{ secrets.FSG_LEAK_TERMS }}
+          SCRIPT: ${{ inputs.script }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            RANGE="$BASE_SHA..$HEAD_SHA"
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            RANGE="$BEFORE_SHA..$HEAD_SHA"
+          else
+            RANGE=""
+          fi
+          if [ -n "$RANGE" ]; then
+            python "$SCRIPT" --range "$RANGE"
+          else
+            python "$SCRIPT" --all
+          fi
