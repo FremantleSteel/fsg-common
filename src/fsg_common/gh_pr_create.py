@@ -19,6 +19,10 @@ exists. This fixes the body first and refuses before creating.
   * The result is judged by `fsg_common.pr_body.check` (imported, not copied):
     a closing keyword or a `No issue:` line, and under 400 words. On a problem
     it exits 1 and does not call gh.
+  * The body is also checked for client terms with the leak guard's own list
+    and matcher (`FSG_LEAK_TERMS` / `FSG_LEAK_TERMS_FILE`, crm#3698 step 3).
+    With no list it says names were NOT checked; a list that is named but
+    unreadable exits 2 and does not call gh.
   * Every other argument passes through to `gh pr create` unchanged; the
     cleaned body goes in as `--body-file`. `-R` is required, as the lane
     rules say, because gh otherwise resolves the repo from the cwd.
@@ -84,7 +88,13 @@ def main(argv: list[str] | None = None,
     body, removed = strip_attribution(body)
     for line in removed:
         print(f"gh_pr_create: removed attribution line: {line.strip()}")
-    problems = pr_body.check(body, None, None)
+    try:
+        terms, terms_state = pr_body.load_term_list(None)
+    except pr_body.leak_guard.TermsNotLoaded as exc:
+        print(f"gh_pr_create: REFUSED -- term list: {exc}", file=sys.stderr)
+        return 2
+    print(f"gh_pr_create: {terms_state}")
+    problems = pr_body.check(body, None, None, terms=terms)
     if problems:
         for p in problems:
             print(f"gh_pr_create: REFUSED -- {p}", file=sys.stderr)

@@ -22,3 +22,9 @@ import os  # noqa: E402
 
 for _k in [k for k in os.environ if k.startswith("GIT_")]:
     del os.environ[_k]
+
+# crm#3698 step 3: the PR-body check and gh_pr_create now read the client
+# term list from FSG_LEAK_TERMS / FSG_LEAK_TERMS_FILE. A test never reads the
+# owner's real list: a test that wants one sets it with monkeypatch.
+for _k in ("FSG_LEAK_TERMS", "FSG_LEAK_TERMS_FILE"):
+    os.environ.pop(_k, None)

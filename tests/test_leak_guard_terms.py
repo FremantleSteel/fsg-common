@@ -97,9 +97,18 @@ def test_the_older_variable_name_loads_the_list(monkeypatch, terms, leaky):
     assert "client term (line 3 of the term list)" in report
 
 
-def test_the_current_name_wins_over_the_older_one(monkeypatch, terms, leaky, tmp_path):
+def test_both_names_on_two_different_files_refuse(monkeypatch, terms, leaky, tmp_path):
+    # crm#3698 step 3, one list: two variables naming two files used to let
+    # the current name win quietly, so two checks could read two lists.
     monkeypatch.setenv(leak_guard.TERMS_ENV, str(terms))
     monkeypatch.setenv(leak_guard.LEGACY_TERMS_ENV, str(tmp_path / "missing.txt"))
+    code, report = _run(["--files", str(leaky)])
+    assert code == 2 and "two different files" in report, report
+
+
+def test_both_names_on_the_same_file_load_it(monkeypatch, terms, leaky):
+    monkeypatch.setenv(leak_guard.TERMS_ENV, str(terms))
+    monkeypatch.setenv(leak_guard.LEGACY_TERMS_ENV, str(terms))
     assert _run(["--files", str(leaky)])[0] == 1
 
 
