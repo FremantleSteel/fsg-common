@@ -50,6 +50,13 @@ Three rules, and how each fails:
 3. Neither the body nor the first comment carries a "Co-Authored-By" trailer
    or a "Generated with" line -- David's rule, all five repos, 16 Sep 2026:
    no commit, pull request or document carries an attribution line.
+4. Neither holds a client term (crm#3698, study plan step 3), checked with
+   the leak guard's own list and matcher (`leak_guard.term_list_source()`,
+   `leak_guard.find_term_hits()`), so this check and the guard cannot
+   disagree. `--terms PATH`, else `FSG_LEAK_TERMS` / `FSG_LEAK_TERMS_FILE`.
+   With no list it says client names were NOT checked (CI has none yet);
+   a list that is named but cannot be read exits 2. A hit names the term's
+   line in the list, never the term. A term under 4 letters warns only.
 
 A bot's PR (Dependabot's release notes are neither short nor linked to an
 issue here) is exempt by author, and the report says so.
@@ -68,6 +75,8 @@ import argparse
 import json
 import re
 import sys
+
+from fsg_common import leak_guard
 
 WORD_LIMIT = 400
 EXEMPT_AUTHORS = frozenset({"dependabot[bot]", "github-actions[bot]"})
@@ -161,8 +170,28 @@ def states_no_issue(body: str | None) -> bool:
     return False
 
 
+def term_findings(body: str | None, first_comment: str | None,
+                  terms: list[tuple[int, str]]) -> tuple[list[str], list[str]]:
+    """(blocking problems, warnings) for client terms in the body and the
+    first comment, from the leak guard's one matcher. A term under
+    `leak_guard.SHORT_TERM_LENGTH` letters only warns, as in the guard.
+    Messages name where and which list line, never the term."""
+    problems: list[str] = []
+    warnings: list[str] = []
+    for name, text in (("the body", body), ("the first comment", first_comment)):
+        if not text:
+            continue
+        hits, _skipped = leak_guard.find_term_hits(text, terms)
+        short = {n for n, t in terms if leak_guard.is_short_term(t)}
+        for n, line in hits:
+            msg = f"{name}, line {line}, holds a client term (line {n} of the term list)"
+            (warnings if n in short else problems).append(msg)
+    return problems, warnings
+
+
 def check(body: str | None, first_comment: str | None, author: str | None,
-          closing_refs: list[int] | None = None) -> list[str]:
+          closing_refs: list[int] | None = None,
+          terms: list[tuple[int, str]] | None = None) -> list[str]:
     """The problems with this PR, in order; an empty list is a pass.
 
     `closing_refs` is GitHub's OWN answer to "what will merging this close",
@@ -224,7 +253,24 @@ def check(body: str | None, first_comment: str | None, author: str | None,
             problems.append(
                 f"{' and '.join(found_in)} carries a \"{phrase}\" line; no commit, pull "
                 f"request or document carries an attribution line")
+    if terms:
+        problems.extend(term_findings(body, first_comment, terms)[0])
     return problems
+
+
+def load_term_list(path: str | None) -> tuple[list[tuple[int, str]] | None, str]:
+    """(terms or None, state line). `path` is `--terms`; else the guard's
+    own `term_list_source()`. None with no list anywhere. Raises
+    `leak_guard.TermsNotLoaded` when a list is named but cannot be used."""
+    source = "--terms"
+    if path is None:
+        found = leak_guard.term_list_source()
+        if found is None:
+            return None, ("client names: NOT checked (no term list: give --terms "
+                          f"or set {leak_guard.TERMS_ENV})")
+        source, path = found
+    terms = leak_guard.load_terms(path)
+    return terms, f"client names: checked against {len(terms)} term(s) from {source}"
 
 
 def closing_issue_numbers(refs_json: str) -> list[int]:
@@ -293,7 +339,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--body-file", help="local use: a file holding the PR body")
     ap.add_argument("--comment-file", help="local use: a file holding the first comment")
     ap.add_argument("--author", default=None, help="local use: the PR author's login")
+    ap.add_argument("--terms", default=None,
+                    help=f"client term list (else {leak_guard.TERMS_ENV}); the "
+                         "leak guard's own list and matcher")
     args = ap.parse_args(argv)
+    try:
+        terms, terms_state = load_term_list(args.terms)
+    except leak_guard.TermsNotLoaded as exc:
+        print(f"check_pr_body: CANNOT EVALUATE -- term list: {exc}", file=sys.stderr)
+        return 2
 
     author = args.author
     first_comment: str | None = None
@@ -333,9 +387,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"check_pr_body: CANNOT EVALUATE -- {exc}", file=sys.stderr)
         return 2
 
-    problems = check(body, first_comment, author, closing_refs)
+    problems = check(body, first_comment, author, closing_refs, terms)
     print(f"check_pr_body: author {author or '?'}; body {word_count(body)} words; "
           f"{comment_state}; {refs_state}; limit under {WORD_LIMIT} together")
+    print(f"check_pr_body: {terms_state}")
+    if terms and author not in EXEMPT_AUTHORS:
+        for w in term_findings(body, first_comment, terms)[1]:
+            print(f"check_pr_body: WARN -- {w}: a term under "
+                  f"{leak_guard.SHORT_TERM_LENGTH} letters, so this does not block")
     if author in EXEMPT_AUTHORS:
         print(f"check_pr_body: {author} is exempt (a bot's body is not ours to shape)")
         return 0

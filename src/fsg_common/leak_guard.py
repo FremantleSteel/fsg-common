@@ -116,6 +116,21 @@ than 4 characters (`SHORT_TERM_LENGTH`) is still checked, but a hit on it
 prints WARN and does not block on its own, because so short a term matches
 inside ordinary text (the owner's Desk answer of 24 Nov 2026, crm#3698).
 `run()` does this; `check()` still blocks on every term it is given.
+
+One list, one matcher (crm#3698, study plan step 3). `term_list_source()`
+is the one place a term list is found: `--terms PATH`, else
+`FSG_LEAK_TERMS`, else `FSG_LEAK_TERMS_FILE`, and two variables naming two
+different files refuse, so no check reads a different list from the next.
+`find_term_hits()` is the one matcher: this guard, the PR-body check
+(`pr_body`) and `gh_pr_create` all call it. A term line in the list can be
+marked as an ordinary word with a `# fsg: prose-only` comment line just
+above it. A marked term still blocks in prose, but a hit on it inside a
+code name (joined by `_`, `.`, `/` or a backslash to more letters, inside
+backticks or a fenced code block, or in a file path) is counted and does
+not block. An unmarked term, which is every client name, blocks
+everywhere as before. A reader of an older version sees the mark as a
+comment and checks the term everywhere, the safe direction.
+
 Every email and phone value
 `run()` prints is masked, because a CI log is readable by everyone with
 repo access; `check()` still returns the raw value.
@@ -798,14 +813,16 @@ def check(paths: list[str], config: GuardConfig,
           path_sources: dict[str, str] | None = None,
           read_content: bool = True,
           near_misses: list[str] | None = None,
-          terms: list[tuple[int, str]] | None = None) -> list[str]:
+          terms: list[tuple[int, str]] | None = None,
+          term_code_skips: list[int] | None = None) -> list[str]:
     """Blocking problems. `near_misses`, if given and `config.enable_near_
     misses`, is filled with mistyped-AU and non-AU international numbers --
     reported by the caller, never blocking. `terms` is `load_terms()`'s
     result; each path and its content is checked against it."""
     problems: list[str] = []
     problems.extend(_term_hits(paths, path_sources, read_content,
-                               terms_to_check(terms, config), config))
+                               terms_to_check(terms, config), config,
+                               term_code_skips))
     for path in paths:
         norm = path.replace("\\", "/")
 
@@ -962,12 +979,51 @@ class TermsNotLoaded(Exception):
     pass
 
 
+#: A comment line that marks the NEXT term line as an ordinary word
+#: (crm#3698 step 3). Older readers skip it as a comment and check the term
+#: everywhere, so the mark can only ever make a newer reader looser for
+#: that one term, never an older one.
+PROSE_ONLY_MARK_RE = re.compile(r"^#\s*fsg:\s*prose-only\s*$", re.I)
+
+
+class ProseOnlyTerm(str):
+    """A term marked `# fsg: prose-only` in the list: an ordinary word that
+    is also used in code names. A `str`, so every caller of `load_terms()`
+    keeps working; `is_prose_only()` tells the kind."""
+
+
+def is_prose_only(term: str) -> bool:
+    return isinstance(term, ProseOnlyTerm)
+
+
+def term_list_source(environ=None) -> tuple[str, str] | None:
+    """(variable name, path) of the one term list, or None when no variable
+    names one. `FSG_LEAK_TERMS` wins over `FSG_LEAK_TERMS_FILE`; when both
+    are set to different files this refuses (`TermsNotLoaded`), because two
+    checks reading two lists is how one check passed text another refused
+    (crm#3698, study plan step 3). The path is never printed."""
+    env = os.environ if environ is None else environ
+    named = [(n, env.get(n, "").strip()) for n in (TERMS_ENV, LEGACY_TERMS_ENV)]
+    named = [(n, p) for n, p in named if p]
+    if not named:
+        return None
+    if len(named) == 2:
+        a, b = (os.path.normcase(os.path.abspath(p)) for _, p in named)
+        if a != b:
+            raise TermsNotLoaded(
+                f"{TERMS_ENV} and {LEGACY_TERMS_ENV} name two different "
+                "files. Every check reads one list, so set only one of them")
+    return named[0]
+
+
 def load_terms(path: str) -> list[tuple[int, str]]:
     """(line number, term) for each term in the file at `path`: one
     case-insensitive substring per line, '#' lines and blank lines ignored.
-    Read as utf-8-sig: a list saved "UTF-8 with BOM" (Windows PowerShell 5.1,
-    Notepad) would otherwise carry U+FEFF into the line-1 term, which then
-    never matches while the run still counts it (PR 91 review)."""
+    A term on the line after a `# fsg: prose-only` line is a
+    `ProseOnlyTerm`. Read as utf-8-sig: a list saved "UTF-8 with BOM"
+    (Windows PowerShell 5.1, Notepad) would otherwise carry U+FEFF into the
+    line-1 term, which then never matches while the run still counts it
+    (PR 91 review)."""
     try:
         with open(path, encoding="utf-8-sig") as fh:
             text = fh.read()
@@ -976,8 +1032,19 @@ def load_terms(path: str) -> list[tuple[int, str]]:
     except (OSError, UnicodeDecodeError) as exc:
         raise TermsNotLoaded(
             f"the file could not be read ({type(exc).__name__})") from None
-    terms = [(n, line.strip()) for n, line in enumerate(text.splitlines(), start=1)
-             if line.strip() and not line.lstrip().startswith("#")]
+    terms: list[tuple[int, str]] = []
+    marked = False
+    for n, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            # A mark applies to the very next term line; any other comment
+            # line in between cancels it, so it never reaches a far term.
+            marked = bool(PROSE_ONLY_MARK_RE.match(stripped))
+            continue
+        terms.append((n, ProseOnlyTerm(stripped) if marked else stripped))
+        marked = False
     if not terms:
         raise TermsNotLoaded("the file holds no terms")
     return terms
@@ -1022,16 +1089,86 @@ def allowed_address_spans(body: str,
             if m.group(0).lower() in allowed]
 
 
-def _first_term_hit(rx: re.Pattern, body: str,
-                    spans: list[tuple[int, int]]) -> re.Match | None:
-    """The first hit of `rx` in `body` not wholly inside one of `spans`.
-    The owner's decision of 23 Nov 2026 ("guard changes- A", crm#3698): a
-    term hit wholly inside an exact allowed address is skipped; the same
-    term anywhere else still blocks."""
-    for hit in rx.finditer(body):
-        if not any(a <= hit.start() and hit.end() <= b for a, b in spans):
-            return hit
-    return None
+#: Characters that join a word into a code name or a path: `a_b`, `a.b`,
+#: `a/b`, `a\b`. A hyphen is not one: `x-based` is ordinary prose.
+_CODE_JOINERS = "_./\\"
+
+
+def _is_word_char(ch: str) -> bool:
+    return ch.isascii() and ch.isalnum()
+
+
+def _fenced_spans(body: str) -> list[tuple[int, int]]:
+    """(start, end) of each fenced code block (a ``` or ~~~ line to the next
+    such line, or to the end)."""
+    spans, start, pos = [], None, 0
+    for line in body.splitlines(keepends=True):
+        if line.lstrip().startswith(("```", "~~~")):
+            if start is None:
+                start = pos
+            else:
+                spans.append((start, pos + len(line)))
+                start = None
+        pos += len(line)
+    if start is not None:
+        spans.append((start, len(body)))
+    return spans
+
+
+def hit_in_code(body: str, start: int, end: int,
+                fenced: list[tuple[int, int]] | None = None) -> bool:
+    """True when `body[start:end]` sits in a code name, not in prose: joined
+    on either side by `_ . / \\` to another letter or digit (`x_word`,
+    `word.py`, `dir/word/`, `S:\\word\\`), between backticks on its own
+    line, or inside a fenced code block. Used only for `ProseOnlyTerm`s
+    (crm#3698 step 3): a client name blocks in a code name too."""
+    before = body[start - 1] if start > 0 else ""
+    before2 = body[start - 2] if start > 1 else ""
+    after = body[end] if end < len(body) else ""
+    after2 = body[end + 1] if end + 1 < len(body) else ""
+    if before in _CODE_JOINERS and before and _is_word_char(before2):
+        return True
+    if after in _CODE_JOINERS and after and _is_word_char(after2):
+        return True
+    line_start = body.rfind("\n", 0, start) + 1
+    line_end = body.find("\n", end)
+    line_end = len(body) if line_end < 0 else line_end
+    if (body.count("`", line_start, start) % 2 == 1
+            and "`" in body[end:line_end]):
+        return True
+    if fenced is None:
+        fenced = _fenced_spans(body)
+    return any(a <= start and end <= b for a, b in fenced)
+
+
+def find_term_hits(body: str, terms: list[tuple[int, str]],
+                   config: GuardConfig | None = None
+                   ) -> tuple[list[tuple[int, int]], int]:
+    """THE matcher (crm#3698 step 3): the leak guard, the PR-body check and
+    `gh_pr_create` all call this one function. Returns ([(term line, text
+    line)] for the first blocking hit of each term, number of hits skipped
+    because a `ProseOnlyTerm` sat in a code name). A hit wholly inside an
+    exact allowed address (`config`) is skipped too, as before. The term
+    itself is never returned."""
+    spans = allowed_address_spans(body, config) if config else []
+    fenced: list[tuple[int, int]] | None = None
+    hits: list[tuple[int, int]] = []
+    code_skipped = 0
+    for (n, term), rx in zip(terms, term_patterns([t for _, t in terms]),
+                             strict=True):
+        prose_only = is_prose_only(term)
+        for hit in rx.finditer(body):
+            if any(a <= hit.start() and hit.end() <= b for a, b in spans):
+                continue
+            if prose_only:
+                if fenced is None:
+                    fenced = _fenced_spans(body)
+                if hit_in_code(body, hit.start(), hit.end(), fenced):
+                    code_skipped += 1
+                    continue
+            hits.append((n, body.count("\n", 0, hit.start()) + 1))
+            break
+    return hits, code_skipped
 
 
 def mask_terms(msg: str, patterns: list[re.Pattern]) -> str:
@@ -1045,15 +1182,21 @@ def mask_terms(msg: str, patterns: list[re.Pattern]) -> str:
 def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
                read_content: bool,
                terms: list[tuple[int, str]] | None,
-               config: GuardConfig | None = None) -> list[str]:
+               config: GuardConfig | None = None,
+               code_skipped: list[int] | None = None) -> list[str]:
+    # `code_skipped`, if given, gets one count per file read: hits on a
+    # prose-only term that sat in a code name and so did not block.
     # Matched here, not as extra secret patterns: the secret scan skips any
     # hit that looks like a placeholder, and a client name is never skipped.
     # Allowed paths and skipped extensions are checked too, on purpose.
     terms = terms or []
-    path_rx = list(zip((n for n, _ in terms), term_patterns([t for _, t in terms]),
-                       strict=True))
+    # A file path is a code name, so a prose-only term is not looked for in
+    # one; every other term is (a client's name in a folder name blocks).
+    path_terms = [(n, t) for n, t in terms if not is_prose_only(t)]
+    path_rx = list(zip((n for n, _ in path_terms),
+                       term_patterns([t for _, t in path_terms]), strict=True))
     problems: list[str] = []
-    for path in paths if path_rx else ():
+    for path in paths if terms else ():
         norm = path.replace("\\", "/")
         for n, rx in path_rx:
             if rx.search(norm):
@@ -1065,13 +1208,12 @@ def _term_hits(paths: list[str], path_sources: dict[str, str] | None,
         body, _err = _read_body(path, path_sources)
         if body is None:
             continue          # the main check reports the unreadable file
-        spans = allowed_address_spans(body, config) if config else []
-        for n, rx in path_rx:
-            hit = _first_term_hit(rx, body, spans)
-            if hit:
-                line = body.count("\n", 0, hit.start()) + 1
-                problems.append(f"{norm}:{line}: client term "
-                                f"(line {n} of the term list)")
+        hits, skipped = find_term_hits(body, terms, config)
+        for n, line in hits:
+            problems.append(f"{norm}:{line}: client term "
+                            f"(line {n} of the term list)")
+        if code_skipped is not None:
+            code_skipped.append(skipped)
     return problems
 
 
@@ -1116,10 +1258,13 @@ def _load_terms_for_run(args, config: GuardConfig):
         return None, None
     source, path = "--terms", args.terms
     if path is None:
-        for name in (TERMS_ENV, LEGACY_TERMS_ENV):
-            if os.environ.get(name, "").strip():
-                source, path = name, os.environ[name].strip()
-                break
+        try:
+            found = term_list_source()
+        except TermsNotLoaded as exc:
+            print(f"REFUSED. {NOT_LOADED}: {exc}.", file=sys.stderr)
+            return None, 2
+        if found:
+            source, path = found
     if path is None:
         if not args.terms_optional:
             print(f"REFUSED. {NOT_LOADED}.", file=sys.stderr)
@@ -1243,14 +1388,24 @@ def run(argv: list[str] | None, config: GuardConfig, *,
     # longer terms, which block (the owner's Desk answer of 24 Nov 2026).
     short_terms = [(n, t) for n, t in terms or [] if is_short_term(t)]
     long_terms = [(n, t) for n, t in terms or [] if not is_short_term(t)]
-    term_kw = {"terms": long_terms} if terms is not None else {}
+    code_skips: list[int] = []
+    term_kw = ({"terms": long_terms, "term_code_skips": code_skips}
+               if terms is not None else {})
     problems = [mask_terms(mask_message(p), term_rx) for p in
                 check(paths, config, path_sources=path_sources,
                       near_misses=near_misses, **term_kw)]
     near_misses[:] = [mask_terms(mask_message(m), term_rx) for m in near_misses]
     short_hits = [mask_terms(h, term_rx) for h in
                   _term_hits(paths, path_sources, True,
-                             terms_to_check(short_terms, config), config)]
+                             terms_to_check(short_terms, config), config,
+                             code_skips)]
+
+    def _report_code_skips() -> None:
+        # Counted, never printed with the word: the owner marked these terms
+        # as ordinary words, so a code name holding one does not block.
+        if sum(code_skips):
+            print(f"  {sum(code_skips)} hit(s) on a prose-only term sat in a "
+                  "code name and did not block", file=sys.stderr)
 
     def _report_short_hits() -> None:
         # Never folded into the verdict: a term this short matches inside
@@ -1282,11 +1437,17 @@ def run(argv: list[str] | None, config: GuardConfig, *,
             if checked < len(terms):
                 print(f"  {len(terms) - checked} term(s) not checked: each is "
                       "exactly an address this guard allows")
+            prose = sum(1 for _, t in terms_to_check(terms, config)
+                        if is_prose_only(t))
+            if prose:
+                print(f"  {prose} of them marked prose-only: a hit in a "
+                      "code name does not block")
             short = len(terms_to_check(short_terms, config))
             if short:
                 print(f"  {short} of them under {SHORT_TERM_LENGTH} "
                       "characters: a hit on one warns, never blocks")
         _report_short_hits()
+        _report_code_skips()
         _report_near_misses()
         return 0
 
@@ -1297,4 +1458,5 @@ def run(argv: list[str] | None, config: GuardConfig, *,
     print("\nGit history keeps a file even after a later deletion, so this "
           "has to be fixed before the commit, not after.", file=sys.stderr)
     _report_short_hits()
+    _report_code_skips()
     return 1
